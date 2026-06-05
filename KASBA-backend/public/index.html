@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>KASBA - Prova de Connexió</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+    <h1>KASBA - Prova de Connexió a Supabase</h1>
+    <button onclick="carregarDades()">Carregar Professors</button>
+    <pre id="resultat"></pre>
+
+    <script>
+        // Substitueix LA_TEVA_CLAU_ANON per la teva clau pública real
+        const SUPABASE_URL = 'https://aaurzyqkucdbedqfrtu.supabase.co';
+        const SUPABASE_ANON_KEY = 'LA_TEVA_CLAU_ANON';
+
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        async function carregarDades() {
+            const resultatDiv = document.getElementById('resultat');
+            resultatDiv.textContent = 'Carregant...';
+
+            const { data, error } = await supabase
+                .from('professors')
+                .select('*');
+
+            if (error) {
+                console.error('Error en la consulta:', error);
+                resultatDiv.textContent = `Error: ${error.message}`;
+            } else {
+                console.log('Dades rebudes:', data);
+                resultatDiv.textContent = JSON.stringify(data, null, 2);
+            }
+        }
+    </script>
+</body>
+</html>

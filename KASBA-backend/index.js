@@ -1,0 +1,446 @@
+import express from 'express'
+import cors from 'cors'
+import ws from 'ws'
+import { createClient } from '@supabase/supabase-js'
+import dotenv from 'dotenv'
+
+dotenv.config()
+console.log('ROL DE LA CLAU:', JSON.parse(atob(process.env.SUPABASE_SERVICE_KEY.split('.')[1])).role)
+
+const supabaseAdmin = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY,
+  { realtime: { transport: ws } }
+)
+
+const app = express()
+app.use(cors({ origin: 'http://localhost:5173' }))
+app.use(express.json())
+
+app.get('/professors', async (req, res) => {
+  const { data, error } = await supabaseAdmin
+    .from('professors').select('*').order('nom')
+  if (error) return res.status(500).json({ error: error.message })
+  res.json(data)
+})
+
+app.post('/professors', async (req, res) => {
+  const { email, nom, rol, password } = req.body
+  if (!email || !nom || !rol || !password)
+    return res.status(400).json({ error: 'Falten camps obligatoris' })
+
+  const { data: authData, error: authError } =
+    await supabaseAdmin.auth.admin.createUser({
+      email, password, email_confirm: true
+    })
+  if (authError) return res.status(400).json({ error: authError.message })
+
+  const userId = authData.user.id
+
+  const { error: dbError } = await supabaseAdmin
+    .from('professors')
+    .insert([{ id: userId, email, nom, rol }])
+
+  if (dbError) {
+    await supabaseAdmin.auth.admin.deleteUser(userId)
+    return res.status(500).json({ error: dbError.message })
+  }
+
+  res.json({ id: userId, email, nom, rol })
+})
+
+app.delete('/professors/:id', async (req, res) => {
+  const { id } = req.params
+  await supabaseAdmin.auth.admin.deleteUser(id)
+  const { error } = await supabaseAdmin
+    .from('professors').delete().eq('id', id)
+  if (error) return res.status(500).json({ error: error.message })
+  res.json({ ok: true })
+})
+
+// ==========================================
+// RUTES PER A GRUPS
+// ==========================================
+
+// 1. Llistar tots els grups
+app.get('/grups', async (req, res) => {
+  // Fem un JOIN amb 'professors' per obtenir el nom del professor directament
+  const { data, error } = await supabaseAdmin
+    .from('grups')
+    .select('*, professors(nom)') 
+    .order('nom');
+  
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// 2. Crear un nou grup
+app.post('/grups', async (req, res) => {
+  const { nom, curs, professor_id, llindar_assistencia } = req.body;
+  
+  if (!nom || !curs) {
+    return res.status(400).json({ error: 'El nom i el curs són obligatoris' });
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('grups')
+    .insert([{ 
+      nom, 
+      curs, 
+      professor_id: professor_id || null, 
+      llindar_assistencia: llindar_assistencia || 80 // Valor per defecte 80%
+    }])
+    .select()
+    .single(); // .single() retorna l'objecte en lloc d'un array
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// 3. Actualitzar un grup
+app.put('/grups/:id', async (req, res) => {
+  const { id } = req.params;
+  const { nom, curs, professor_id, llindar_assistencia } = req.body;
+
+  const { data, error } = await supabaseAdmin
+    .from('grups')
+    .update({ nom, curs, professor_id, llindar_assistencia })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// 4. Eliminar un grup
+app.delete('/grups/:id', async (req, res) => {
+  const { id } = req.params;
+  
+  const { error } = await supabaseAdmin
+    .from('grups')
+    .delete()
+    .eq('id', id);
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
+// ==========================================
+// RUTES PER A ALUMNES
+// ==========================================
+
+// Llistar alumnes (amb nom del grup associat)
+app.get('/alumnes', async (req, res) => {
+  const { data, error } = await supabaseAdmin
+    .from('alumnes')
+    .select(`*, grups (nom)`)
+    .order('nom');
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// Crear alumne
+app.post('/alumnes', async (req, res) => {
+  const { nom, cognoms, dni, grup_id, actiu } = req.body;
+  if (!nom || !cognoms) {
+    return res.status(400).json({ error: 'Nom i cognoms són obligatoris' });
+  }
+  const { data, error } = await supabaseAdmin
+    .from('alumnes')
+    .insert([{ nom, cognoms, dni, grup_id, actiu: actiu ?? true }])
+    .select()
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// Actualitzar alumne
+app.put('/alumnes/:id', async (req, res) => {
+  const { id } = req.params;
+  const { nom, cognoms, dni, grup_id, actiu } = req.body;
+  const { data, error } = await supabaseAdmin
+    .from('alumnes')
+    .update({ nom, cognoms, dni, grup_id, actiu })
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// Eliminar alumne
+app.delete('/alumnes/:id', async (req, res) => {
+  const { id } = req.params;
+  const { error } = await supabaseAdmin
+    .from('alumnes')
+    .delete()
+    .eq('id', id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
+// ==========================================
+// RUTES PER A MATERIES
+// ==========================================
+
+app.get('/materies', async (req, res) => {
+  const { data, error } = await supabaseAdmin
+    .from('materies')
+    .select('*')
+    .order('nom');
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+app.post('/materies', async (req, res) => {
+  const { nom, descripcio } = req.body;
+  if (!nom) return res.status(400).json({ error: 'El nom és obligatori' });
+  const { data, error } = await supabaseAdmin
+    .from('materies')
+    .insert([{ nom, descripcio }])
+    .select()
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+app.put('/materies/:id', async (req, res) => {
+  const { id } = req.params;
+  const { nom, descripcio } = req.body;
+  const { data, error } = await supabaseAdmin
+    .from('materies')
+    .update({ nom, descripcio })
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+app.delete('/materies/:id', async (req, res) => {
+  const { id } = req.params;
+  const { error } = await supabaseAdmin
+    .from('materies')
+    .delete()
+    .eq('id', id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
+// ==========================================
+// RUTES PER A HORARIS (abans sessions)
+// ==========================================
+
+app.get('/horaris', async (req, res) => {
+  const { data, error } = await supabaseAdmin
+    .from('horaris')
+    .select(`*, grups(nom), materies(nom)`)
+    .order('dia_setmana')
+    .order('hora_inici');
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+app.post('/horaris', async (req, res) => {
+  const { grup_id, materia_id, dia_setmana, hora_inici, durada_min } = req.body;
+  if (!grup_id || !materia_id || !dia_setmana || !hora_inici || !durada_min) {
+    return res.status(400).json({ error: 'Falten camps obligatoris' });
+  }
+  const { data, error } = await supabaseAdmin
+    .from('horaris')
+    .insert([{ grup_id, materia_id, dia_setmana, hora_inici, durada_min }])
+    .select()
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+app.put('/horaris/:id', async (req, res) => {
+  const { id } = req.params;
+  const { grup_id, materia_id, dia_setmana, hora_inici, durada_min } = req.body;
+  const { data, error } = await supabaseAdmin
+    .from('horaris')
+    .update({ grup_id, materia_id, dia_setmana, hora_inici, durada_min })
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+app.delete('/horaris/:id', async (req, res) => {
+  const { id } = req.params;
+  const { error } = await supabaseAdmin
+    .from('horaris')
+    .delete()
+    .eq('id', id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
+// ==========================================
+// RUTES PER A ASSISTÈNCIA
+// ==========================================
+
+// Funció auxiliar per obtenir el dia de la setmana (1=dl, 7=dg)
+function getDiaSetmana(data) {
+  const date = new Date(data);
+  let dia = date.getDay(); // 0=diumenge, 1=dilluns, ..., 6=dissabte
+  // Convertim a 1=dilluns, 7=diumenge
+  return dia === 0 ? 7 : dia;
+}
+
+// GET /assistencia/config?grup_id=xxx&data=YYYY-MM-DD
+app.get('/assistencia/config', async (req, res) => {
+  const { grup_id, data } = req.query;
+  if (!grup_id || !data) {
+    return res.status(400).json({ error: 'Falten grup_id o data' });
+  }
+
+  const diaSetmana = getDiaSetmana(data);
+
+  // 1. Sessions del grup per aquest dia de la setmana
+  const { data: sessions, error: errSessions } = await supabaseAdmin
+    .from('horaris')
+    .select(`*, materies(nom)`)
+    .eq('grup_id', grup_id)
+    .eq('dia_setmana', diaSetmana)
+    .order('hora_inici');
+
+  if (errSessions) return res.status(500).json({ error: errSessions.message });
+
+  // 2. Alumnes del grup (només actius)
+  const { data: alumnes, error: errAlumnes } = await supabaseAdmin
+    .from('alumnes')
+    .select('id, nom, cognoms')
+    .eq('grup_id', grup_id)
+    .eq('actiu', true)
+    .order('nom');
+
+  if (errAlumnes) return res.status(500).json({ error: errAlumnes.message });
+
+  // 3. Registres existents per a aquesta data i sessions
+  const sessionIds = sessions.map(s => s.id);
+  let registresExistents = [];
+  if (sessionIds.length > 0) {
+    const { data: registres, error: errReg } = await supabaseAdmin
+      .from('registres')
+      .select('*')
+      .in('horari_id', sessionIds)
+      .eq('data', data);
+    if (!errReg) registresExistents = registres;
+  }
+
+  res.json({
+    sessions,
+    alumnes,
+    registresExistents
+  });
+});
+
+// POST /assistencia/guardar
+// Body: { data: "YYYY-MM-DD", registres: [{ alumne_id, horari_id, minuts_assistits, observacions? }] }
+app.post('/assistencia/guardar', async (req, res) => {
+  const { data, registres } = req.body;
+  if (!data || !Array.isArray(registres)) {
+    return res.status(400).json({ error: 'Falten dades o format incorrecte' });
+  }
+
+  // Per evitar duplicats, fem upsert: si existeix (alumne_id, horari_id, data) s'actualitza, sinó s'insereix
+  const registresPerUpsert = registres.map(r => ({
+    alumne_id: r.alumne_id,
+    horari_id: r.horari_id,
+    data: data,
+    minuts_assistits: r.minuts_assistits,
+    observacions: r.observacions || null
+  }));
+
+  const { error } = await supabaseAdmin
+    .from('registres')
+    .upsert(registresPerUpsert, { onConflict: 'alumne_id, horari_id, data' });
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
+// ==========================================
+// RUTES PER A HORARIS PER DIA (gestió ràpida)
+// ==========================================
+
+// Obtenir totes les franges d'un grup per a un dia concret
+app.get('/horaris/grup-dia', async (req, res) => {
+  const { grup_id, dia_setmana } = req.query;
+  if (!grup_id || !dia_setmana) {
+    return res.status(400).json({ error: 'Falten grup_id o dia_setmana' });
+  }
+  const { data, error } = await supabaseAdmin
+    .from('horaris')
+    .select('*, materies(nom, id)')
+    .eq('grup_id', grup_id)
+    .eq('dia_setmana', parseInt(dia_setmana))
+    .order('hora_inici');
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// Guardar (reemplaçar) totes les franges d'un grup per a un dia
+// Body: { grup_id, dia_setmana, franges: [{ hora_inici, durada_min, materia_id }] }
+app.post('/horaris/grup-dia', async (req, res) => {
+  const { grup_id, dia_setmana, franges } = req.body;
+  if (!grup_id || !dia_setmana || !Array.isArray(franges)) {
+    return res.status(400).json({ error: 'Dades invàlides' });
+  }
+
+  // 🔍 Validar que no hi ha hores repetides dins de les franges enviades
+  const hores = franges.map(f => f.hora_inici);
+  if (new Set(hores).size !== hores.length) {
+    return res.status(400).json({ error: 'No pots tenir dues franges a la mateixa hora per al mateix dia.' });
+  }
+
+  // 1. Eliminar les franges antigues d'aquest grup i dia
+  const { error: deleteError } = await supabaseAdmin
+    .from('horaris')
+    .delete()
+    .eq('grup_id', grup_id)
+    .eq('dia_setmana', parseInt(dia_setmana));
+
+  if (deleteError) return res.status(500).json({ error: deleteError.message });
+
+  // 2. Inserir les noves franges
+  if (franges.length === 0) {
+    return res.json({ ok: true, missatge: 'Franges buides, s\'han eliminat totes.' });
+  }
+
+  const novesFranges = franges.map(f => ({
+    grup_id,
+    dia_setmana: parseInt(dia_setmana),
+    hora_inici: f.hora_inici,
+    durada_min: f.durada_min,
+    materia_id: f.materia_id
+  }));
+
+  const { error: insertError } = await supabaseAdmin
+    .from('horaris')
+    .insert(novesFranges);
+
+  if (insertError) return res.status(500).json({ error: insertError.message });
+  res.json({ ok: true, missatge: `Guardades ${franges.length} franges.` });
+});
+
+
+// ==========================================
+// LLISTAR HORARIS PER GRUP
+// ==========================================
+
+app.get('/horaris', async (req, res) => {
+  let query = supabaseAdmin.from('horaris').select('*, materies(nom), grups(nom)');
+  if (req.query.grup_id) {
+    query = query.eq('grup_id', req.query.grup_id);
+  }
+  const { data, error } = await query.order('dia_setmana').order('hora_inici');
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+app.listen(3000, () => console.log('Backend corrent a http://localhost:3000'))

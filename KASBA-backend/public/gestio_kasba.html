@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestió KASBA - Professors</title>
+    <!-- Estils mínims per claredat -->
+    <style>
+        body { font-family: Arial, sans-serif; margin: 2rem; background: #f4f7fc; }
+        h1, h2 { color: #2c3e66; }
+        .container { max-width: 1200px; margin: auto; background: white; padding: 2rem; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #2c3e66; color: white; }
+        form { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 2rem; align-items: end; }
+        input, select, button { padding: 8px 12px; border-radius: 4px; border: 1px solid #ccc; }
+        button { background: #2c3e66; color: white; cursor: pointer; border: none; }
+        button:hover { background: #1a2a4a; }
+        .accions button { background: #e67e22; margin-right: 5px; }
+        .accions button.edit { background: #f39c12; }
+        .accions button.delete { background: #e74c3c; }
+        .missatge { margin: 1rem 0; padding: 0.5rem; border-radius: 5px; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .exit { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>📚 Gestió KASBA - Professors</h1>
+    
+    <!-- Formulari per afegir/editar professor -->
+    <h2>➕ Afegir / Editar Professor</h2>
+    <form id="professorForm">
+        <input type="hidden" id="professorId">
+        <input type="text" id="nom" placeholder="Nom complet" required style="min-width: 180px;">
+        <input type="email" id="email" placeholder="Email">
+        <input type="text" id="departament" placeholder="Departament">
+        <button type="submit" id="submitBtn">Desar Professor</button>
+        <button type="button" id="cancelBtn" style="background:#95a5a6;">Cancel·lar</button>
+    </form>
+
+    <!-- Llistat de professors -->
+    <h2>📋 Llista de Professors</h2>
+    <table id="professorsTable">
+        <thead>
+            <tr><th>ID</th><th>Nom</th><th>Email</th><th>Departament</th><th>Accions</th></tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+    <div id="missatge"></div>
+</div>
+
+<!-- Incloure la llibreria Supabase -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<script>
+    import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+    // CONFIGURACIÓ DE SUPABASE (posa aquí les teves credencials)
+    const SUPABASE_URL = 'https://aaurzzyqkcudbedqfrtu.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFhdXJ6enlxa2N1ZGJlZHFmcnR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyODY5NjEsImV4cCI6MjA5NTg2Mjk2MX0.eGoksfqkRLjgSiMIscCdg_gynmNkcmJxKrKEvkzHNOk';
+    
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    
+    let editMode = false;
+
+    // Funció per mostrar missatges
+    function mostrarMissatge(text, tipus) {
+        const div = document.getElementById('missatge');
+        div.innerHTML = `<div class="missatge ${tipus}">${text}</div>`;
+        setTimeout(() => div.innerHTML = '', 3000);
+    }
+
+    // Carregar tots els professors i pintar la taula
+    async function carregarProfessors() {
+        const { data, error } = await supabase.from('professors').select('*').order('nom');
+        if (error) {
+            mostrarMissatge('Error carregant professors: ' + error.message, 'error');
+            return;
+        }
+        const tbody = document.querySelector('#professorsTable tbody');
+        tbody.innerHTML = '';
+        data.forEach(prof => {
+            const row = tbody.insertRow();
+            row.insertCell(0).textContent = prof.id.substring(0,8); // mostrar part de l'ID
+            row.insertCell(1).textContent = prof.nom;
+            row.insertCell(2).textContent = prof.email || '';
+            row.insertCell(3).textContent = prof.departament || '';
+            const accionsCell = row.insertCell(4);
+            accionsCell.className = 'accions';
+            
+            const btnEdit = document.createElement('button');
+            btnEdit.textContent = '✏️ Editar';
+            btnEdit.className = 'edit';
+            btnEdit.onclick = () => omplirFormulari(prof);
+            
+            const btnDelete = document.createElement('button');
+            btnDelete.textContent = '🗑️ Eliminar';
+            btnDelete.className = 'delete';
+            btnDelete.onclick = () => eliminarProfessor(prof.id);
+            
+            accionsCell.appendChild(btnEdit);
+            accionsCell.appendChild(btnDelete);
+        });
+    }
+
+    // Omplir formulari per editar
+    function omplirFormulari(professor) {
+        document.getElementById('professorId').value = professor.id;
+        document.getElementById('nom').value = professor.nom;
+        document.getElementById('email').value = professor.email || '';
+        document.getElementById('departament').value = professor.departament || '';
+        document.getElementById('submitBtn').textContent = 'Actualitzar Professor';
+        editMode = true;
+    }
+
+    // Cancel·lar edició
+    document.getElementById('cancelBtn').onclick = () => {
+        document.getElementById('professorForm').reset();
+        document.getElementById('professorId').value = '';
+        document.getElementById('submitBtn').textContent = 'Desar Professor';
+        editMode = false;
+    };
+
+    // Eliminar professor
+    async function eliminarProfessor(id) {
+        if (!confirm('Segur que vols eliminar aquest professor?')) return;
+        const { error } = await supabase.from('professors').delete().eq('id', id);
+        if (error) {
+            mostrarMissatge('Error eliminant: ' + error.message, 'error');
+        } else {
+            mostrarMissatge('Professor eliminat correctament', 'exit');
+            carregarProfessors();
+        }
+    }
+
+    // Enviar formulari (crear o actualitzar)
+    document.getElementById('professorForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const id = document.getElementById('professorId').value;
+        const nom = document.getElementById('nom').value.trim();
+        const email = document.getElementById('email').value.trim();
+        const departament = document.getElementById('departament').value.trim();
+        
+        if (!nom) {
+            mostrarMissatge('El nom és obligatori', 'error');
+            return;
+        }
+        
+        if (editMode && id) {
+            // Actualitzar
+            const { error } = await supabase.from('professors').update({ nom, email, departament }).eq('id', id);
+            if (error) {
+                mostrarMissatge('Error actualitzant: ' + error.message, 'error');
+            } else {
+                mostrarMissatge('Professor actualitzat', 'exit');
+                cancelarForm();
+                carregarProfessors();
+            }
+        } else {
+            // Crear nou
+            const { error } = await supabase.from('professors').insert([{ nom, email, departament }]);
+            if (error) {
+                mostrarMissatge('Error creant: ' + error.message, 'error');
+            } else {
+                mostrarMissatge('Professor afegit correctament', 'exit');
+                cancelarForm();
+                carregarProfessors();
+            }
+        }
+    });
+    
+    function cancelarForm() {
+        document.getElementById('professorForm').reset();
+        document.getElementById('professorId').value = '';
+        document.getElementById('submitBtn').textContent = 'Desar Professor';
+        editMode = false;
+    }
+
+    // Carregar dades en iniciar
+    carregarProfessors();
+</script>
+</body>
+</html>
