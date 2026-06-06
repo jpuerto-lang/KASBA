@@ -6,6 +6,8 @@ import MateriaManagement from './components/MateriaManagement'
 import HorariPerDia from './components/HorariPerDia'
 import AssistenciaManagement from './components/AssistenciaManagement'
 import HorariGrup from './components/HorariGrup'
+import InformesPrincipal from './components/informes/InformesPrincipal'
+import DiesNoLectiusManagement from './components/DiesNoLectiusManagement'
 
 export default function App() {
   const [seccio, setSeccio] = useState('professors')
@@ -22,7 +24,8 @@ export default function App() {
         <button onClick={() => setSeccio('horaris')} style={{ background: seccio === 'horaris' ? '#2d5be3' : '#f0eee8', color: seccio === 'horaris' ? '#fff' : '#000', border: 'none', padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}>📅 Horari (Disseny)</button>
         <button onClick={() => setSeccio('horari_grup')} style={{ background: seccio === 'horari_grup' ? '#2d5be3' : '#f0eee8', color: seccio === 'horari_grup' ? '#fff' : '#000', border: 'none', padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}>📋 Horari (Visor)</button>
         <button onClick={() => setSeccio('assistencia')} style={{ background: seccio === 'assistencia' ? '#2d5be3' : '#f0eee8', color: seccio === 'assistencia' ? '#fff' : '#000', border: 'none', padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}>✍️ Assistència</button>
-        <button onClick={() => alert('Properament: Informes')} style={{ background: '#f0eee8', border: 'none', padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}>📊 Informes</button>
+        <button onClick={() => setSeccio('dies_no_lectius')} style={{ background: seccio === 'dies_no_lectius' ? '#2d5be3' : '#f0eee8', color: seccio === 'dies_no_lectius' ? '#fff' : '#000', border: 'none', padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}>📅 Dies no lectius</button>
+        <button onClick={() => setSeccio('informes')} style={{ background: seccio === 'informes' ? '#2d5be3' : '#f0eee8', color: seccio === 'informes' ? '#fff' : '#000', border: 'none', padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}>📊 Informes</button>
       </nav>
 
       {seccio === 'professors' && <ProfessorManagement />}
@@ -32,6 +35,8 @@ export default function App() {
       {seccio === 'horaris' && <HorariPerDia />}
       {seccio === 'horari_grup' && <HorariGrup />}
       {seccio === 'assistencia' && <AssistenciaManagement />}
+      {seccio === 'dies_no_lectius' && <DiesNoLectiusManagement />}
+      {seccio === 'informes' && <InformesPrincipal />}
     </div>
   )
 }

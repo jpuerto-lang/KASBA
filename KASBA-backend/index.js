@@ -398,6 +398,642 @@ app.post('/assistencia/guardar', async (req, res) => {
 });
 
 // ==========================================
+// RUTES PER A DIES NO LECTIUS
+// ==========================================
+
+// Llistar dies no lectius d'un grup
+app.get('/dies_no_lectius', async (req, res) => {
+  const { grup_id } = req.query;
+  if (!grup_id) {
+    return res.status(400).json({ error: 'Falta grup_id' });
+  }
+  const { data, error } = await supabaseAdmin
+    .from('dies_no_lectius')
+    .select('*')
+    .eq('grup_id', grup_id)
+    .order('data', { ascending: true });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// Crear dia no lectiu
+app.post('/dies_no_lectius', async (req, res) => {
+  const { grup_id, data, motiu } = req.body;
+  if (!grup_id || !data) {
+    return res.status(400).json({ error: 'Falten grup_id o data' });
+  }
+  const { error } = await supabaseAdmin
+    .from('dies_no_lectius')
+    .insert([{ grup_id, data, motiu }]);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
+// Actualitzar dia no lectiu
+app.put('/dies_no_lectius/:id', async (req, res) => {
+  const { id } = req.params;
+  const { data, motiu } = req.body;
+  const { error } = await supabaseAdmin
+    .from('dies_no_lectius')
+    .update({ data, motiu })
+    .eq('id', id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
+// Eliminar dia no lectiu
+app.delete('/dies_no_lectius/:id', async (req, res) => {
+  const { id } = req.params;
+  const { error } = await supabaseAdmin
+    .from('dies_no_lectius')
+    .delete()
+    .eq('id', id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
+// Copiar dies no lectius d'un grup origen a un grup destí
+app.post('/dies_no_lectius/copiar', async (req, res) => {
+  const { origen_grup_id, desti_grup_id } = req.body;
+  if (!origen_grup_id || !desti_grup_id) {
+    return res.status(400).json({ error: 'Falten els IDs dels grups' });
+  }
+  
+  const { data: diesOrigen, error: errGet } = await supabaseAdmin
+    .from('dies_no_lectius')
+    .select('data, motiu')
+    .eq('grup_id', origen_grup_id);
+  if (errGet) return res.status(500).json({ error: errGet.message });
+  
+  if (diesOrigen.length === 0) {
+    return res.json({ ok: true, missatge: 'El grup origen no té dies no lectius' });
+  }
+  
+  const diesPerInsertar = diesOrigen.map(d => ({
+    grup_id: desti_grup_id,
+    data: d.data,
+    motiu: d.motiu
+  }));
+  
+  const { error: errInsert } = await supabaseAdmin
+    .from('dies_no_lectius')
+    .insert(diesPerInsertar);
+  
+  if (errInsert) return res.status(500).json({ error: errInsert.message });
+  res.json({ ok: true, missatge: `Copiats ${diesOrigen.length} dies al grup destí` });
+});
+
+// ==========================================
+// RUTES PER A INFORMES D'ASSISTÈNCIA
+// ==========================================
+
+app.get('/informes/assistencia', async (req, res) => {
+  const { grup_id, data_inici, data_fi } = req.query;
+  
+  if (!grup_id || !data_inici || !data_fi) {
+    return res.status(400).json({ error: 'Falten paràmetres: grup_id, data_inici, data_fi' });
+  }
+
+  try {
+    // 1. Obtenir tots els horaris del grup
+    const { data: horaris, error: errHoraris } = await supabaseAdmin
+      .from('horaris')
+      .select('id, dia_setmana, hora_inici, durada_min, materia_id, materies(nom)')
+      .eq('grup_id', grup_id);
+    
+    if (errHoraris) throw new Error(errHoraris.message);
+
+    // 2. Obtenir els dies no lectius del grup en el període
+    const { data: diesNoLectius, error: errDies } = await supabaseAdmin
+      .from('dies_no_lectius')
+      .select('data')
+      .eq('grup_id', grup_id)
+      .gte('data', data_inici)
+      .lte('data', data_fi);
+    
+    if (errDies) throw new Error(errDies.message);
+    
+    const diesNoLectiusSet = new Set(diesNoLectius.map(d => d.data));
+
+    // 3. Obtenir tots els alumnes del grup
+    const { data: alumnes, error: errAlumnes } = await supabaseAdmin
+      .from('alumnes')
+      .select('id, nom, cognoms, actiu')
+      .eq('grup_id', grup_id)
+      .order('nom');
+    
+    if (errAlumnes) throw new Error(errAlumnes.message);
+
+    // 4. Obtenir tots els registres d'assistència del període per aquests alumnes
+    const alumnesIds = alumnes.map(a => a.id);
+    const { data: registres, error: errRegistres } = await supabaseAdmin
+      .from('registres')
+      .select('alumne_id, horari_id, minuts_assistits, minuts_justificats, data')
+      .in('alumne_id', alumnesIds)
+      .gte('data', data_inici)
+      .lte('data', data_fi);
+    
+    if (errRegistres) throw new Error(errRegistres.message);
+
+    // Crear mapes per accedir ràpidament als registres per alumne
+    const registresPerAlumne = {};
+    registres.forEach(r => {
+      if (!registresPerAlumne[r.alumne_id]) {
+        registresPerAlumne[r.alumne_id] = [];
+      }
+      registresPerAlumne[r.alumne_id].push(r);
+    });
+
+    // 5. Calcular minuts teòrics totals del període per a qualsevol alumne
+    const dataIniciDate = new Date(data_inici);
+    const dataFiDate = new Date(data_fi);
+    
+    let minutsTeoricsPerAlumne = 0;
+    
+    // Per cada dia del període
+    for (let d = new Date(dataIniciDate); d <= dataFiDate; d.setDate(d.getDate() + 1)) {
+      const dataStr = d.toISOString().split('T')[0];
+      
+      // Saltar dies no lectius
+      if (diesNoLectiusSet.has(dataStr)) continue;
+      
+      const diaSetmana = d.getDay() === 0 ? 7 : d.getDay();
+      
+      // Sumar durada de les sessions que coincideixen amb aquest dia
+      horaris.forEach(h => {
+        if (h.dia_setmana === diaSetmana) {
+          minutsTeoricsPerAlumne += h.durada_min;
+        }
+      });
+    }
+
+    // Funció per convertir minuts a format "X h Y min"
+    function formatHoresMinuts(minuts) {
+      const hores = Math.floor(minuts / 60);
+      const minutsRestants = minuts % 60;
+      if (hores === 0) return `${minutsRestants} min`;
+      if (minutsRestants === 0) return `${hores} h`;
+      return `${hores} h ${minutsRestants} min`;
+    }
+
+    // 6. Calcular per cada alumne
+    const resultat = alumnes.map(alumne => {
+      let minutsAssistits = 0;
+      let minutsJustificats = 0;
+      
+      const registresAlumne = registresPerAlumne[alumne.id] || [];
+      
+      registresAlumne.forEach(r => {
+        // Comprovar que la data sigui lectiva per al grup
+        const dataRegistre = r.data;
+        if (!diesNoLectiusSet.has(dataRegistre)) {
+          minutsAssistits += r.minuts_assistits || 0;
+          minutsJustificats += r.minuts_justificats || 0;
+        }
+      });
+      
+      const percentAssistit = minutsTeoricsPerAlumne > 0 
+        ? (minutsAssistits / minutsTeoricsPerAlumne) * 100 
+        : 0;
+      const percentAssistitJustificat = minutsTeoricsPerAlumne > 0 
+        ? ((minutsAssistits + minutsJustificats) / minutsTeoricsPerAlumne) * 100 
+        : 0;
+      
+      return {
+        id: alumne.id,
+        nom: alumne.nom,
+        cognoms: alumne.cognoms,
+        actiu: alumne.actiu,
+        minuts_teorics: minutsTeoricsPerAlumne,
+        minuts_assistits: minutsAssistits,
+        minuts_justificats: minutsJustificats,
+        hores_teoric: formatHoresMinuts(minutsTeoricsPerAlumne),
+        hores_assistit: formatHoresMinuts(minutsAssistits),
+        hores_justificat: formatHoresMinuts(minutsJustificats),
+        percent_assistit: Math.round(percentAssistit * 100) / 100,
+        percent_assistit_justificat: Math.round(percentAssistitJustificat * 100) / 100
+      };
+    });
+
+    // Afegir informació addicional a la resposta
+    res.json({
+      grup_id,
+      data_inici,
+      data_fi,
+      minuts_teorics_totals: minutsTeoricsPerAlumne,
+      hores_teoric_total: formatHoresMinuts(minutsTeoricsPerAlumne),
+      alumnes: resultat
+    });
+    
+  } catch (error) {
+    console.error('Error generant informe:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==========================================
+// INFORME: ASSISTÈNCIA PER MATÈRIA
+// ==========================================
+
+app.get('/informes/assistencia_materia', async (req, res) => {
+  const { grup_id, materia_id, data_inici, data_fi } = req.query;
+  
+  if (!grup_id || !materia_id || !data_inici || !data_fi) {
+    return res.status(400).json({ error: 'Falten paràmetres' });
+  }
+
+  try {
+    // Obtenir sessions de la matèria per aquest grup
+    const { data: sessionsMateria, error: errSessions } = await supabaseAdmin
+      .from('horaris')
+      .select('id, dia_setmana, durada_min')
+      .eq('grup_id', grup_id)
+      .eq('materia_id', materia_id);
+    
+    if (errSessions) throw new Error(errSessions.message);
+    
+    const sessionIds = sessionsMateria.map(s => s.id);
+
+    // Obtenir dies no lectius
+    const { data: diesNoLectius, error: errDies } = await supabaseAdmin
+      .from('dies_no_lectius')
+      .select('data')
+      .eq('grup_id', grup_id)
+      .gte('data', data_inici)
+      .lte('data', data_fi);
+    
+    if (errDies) throw new Error(errDies.message);
+    const diesNoLectiusSet = new Set(diesNoLectius.map(d => d.data));
+
+    // Calcular minuts teòrics totals per a aquesta matèria
+    const dataIniciDate = new Date(data_inici);
+    const dataFiDate = new Date(data_fi);
+    
+    let minutsTeorics = 0;
+    for (let d = new Date(dataIniciDate); d <= dataFiDate; d.setDate(d.getDate() + 1)) {
+      const dataStr = d.toISOString().split('T')[0];
+      if (diesNoLectiusSet.has(dataStr)) continue;
+      const diaSetmana = d.getDay() === 0 ? 7 : d.getDay();
+      sessionsMateria.forEach(s => {
+        if (s.dia_setmana === diaSetmana) {
+          minutsTeorics += s.durada_min;
+        }
+      });
+    }
+
+    // Obtenir alumnes del grup
+    const { data: alumnes, error: errAlumnes } = await supabaseAdmin
+      .from('alumnes')
+      .select('id, nom, cognoms, actiu')
+      .eq('grup_id', grup_id)
+      .order('nom');
+    
+    if (errAlumnes) throw new Error(errAlumnes.message);
+
+    // Obtenir registres d'assistència per a aquestes sessions
+    const alumnesIds = alumnes.map(a => a.id);
+    const { data: registres, error: errRegistres } = await supabaseAdmin
+      .from('registres')
+      .select('alumne_id, horari_id, minuts_assistits, minuts_justificats, data')
+      .in('alumne_id', alumnesIds)
+      .in('horari_id', sessionIds)
+      .gte('data', data_inici)
+      .lte('data', data_fi);
+    
+    if (errRegistres) throw new Error(errRegistres.message);
+
+    // Funció per formatar hores
+    function formatHores(minuts) {
+      const h = Math.floor(minuts / 60);
+      const m = minuts % 60;
+      if (h === 0) return `${m} min`;
+      if (m === 0) return `${h} h`;
+      return `${h} h ${m} min`;
+    }
+
+    // Calcular per cada alumne
+    const resultat = alumnes.map(alumne => {
+      const registresAlumne = registres.filter(r => r.alumne_id === alumne.id);
+      let minutsAssistits = 0;
+      let minutsJustificats = 0;
+      
+      registresAlumne.forEach(r => {
+        if (!diesNoLectiusSet.has(r.data)) {
+          minutsAssistits += r.minuts_assistits || 0;
+          minutsJustificats += r.minuts_justificats || 0;
+        }
+      });
+      
+      const percentAssistit = minutsTeorics > 0 ? (minutsAssistits / minutsTeorics) * 100 : 0;
+      const percentAssistitJustificat = minutsTeorics > 0 ? ((minutsAssistits + minutsJustificats) / minutsTeorics) * 100 : 0;
+      
+      return {
+        id: alumne.id,
+        nom: alumne.nom,
+        cognoms: alumne.cognoms,
+        actiu: alumne.actiu,
+        minuts_teorics: minutsTeorics,
+        minuts_assistits: minutsAssistits,
+        minuts_justificats: minutsJustificats,
+        hores_teoric: formatHores(minutsTeorics),
+        hores_assistit: formatHores(minutsAssistits),
+        hores_justificat: formatHores(minutsJustificats),
+        percent_assistit: Math.round(percentAssistit * 100) / 100,
+        percent_assistit_justificat: Math.round(percentAssistitJustificat * 100) / 100
+      };
+    });
+
+    res.json({
+      grup_id,
+      materia_id,
+      data_inici,
+      data_fi,
+      minuts_teorics_totals: minutsTeorics,
+      hores_teoric_total: formatHores(minutsTeorics),
+      alumnes: resultat
+    });
+    
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==========================================
+// INFORME: ASSISTÈNCIA PER GRUP
+// ==========================================
+
+app.get('/informes/assistencia_grup', async (req, res) => {
+  const { grup_id, data_inici, data_fi } = req.query;
+  if (!data_inici || !data_fi) {
+    return res.status(400).json({ error: 'Falten les dates' });
+  }
+
+  try {
+    // Obtenir la llista de grups (si es filtra per grup_id, només un)
+    let queryGrups = supabaseAdmin.from('grups').select('id, nom');
+    if (grup_id) {
+      queryGrups = queryGrups.eq('id', grup_id);
+    }
+    const { data: grups, error: errGrups } = await queryGrups;
+    if (errGrups) throw new Error(errGrups.message);
+
+    const resultat = [];
+
+    for (const grup of grups) {
+      // Obtenir horaris del grup
+      const { data: horaris, error: errHor } = await supabaseAdmin
+        .from('horaris')
+        .select('dia_setmana, durada_min')
+        .eq('grup_id', grup.id);
+      if (errHor) throw new Error(errHor.message);
+
+      // Obtenir dies no lectius del grup en el període
+      const { data: diesNoLectius, error: errDies } = await supabaseAdmin
+        .from('dies_no_lectius')
+        .select('data')
+        .eq('grup_id', grup.id)
+        .gte('data', data_inici)
+        .lte('data', data_fi);
+      if (errDies) throw new Error(errDies.message);
+      const diesNoLectiusSet = new Set(diesNoLectius.map(d => d.data));
+
+      // Calcular minuts teòrics totals per al grup
+      const dataIniciDate = new Date(data_inici);
+      const dataFiDate = new Date(data_fi);
+      let minutsTeorics = 0;
+      for (let d = new Date(dataIniciDate); d <= dataFiDate; d.setDate(d.getDate() + 1)) {
+        const dataStr = d.toISOString().split('T')[0];
+        if (diesNoLectiusSet.has(dataStr)) continue;
+        const diaSetmana = d.getDay() === 0 ? 7 : d.getDay();
+        horaris.forEach(h => {
+          if (h.dia_setmana === diaSetmana) {
+            minutsTeorics += h.durada_min;
+          }
+        });
+      }
+
+      // Obtenir alumnes del grup
+      const { data: alumnes, error: errAl } = await supabaseAdmin
+        .from('alumnes')
+        .select('id')
+        .eq('grup_id', grup.id);
+      if (errAl) throw new Error(errAl.message);
+      const alumnesIds = alumnes.map(a => a.id);
+
+      // Obtenir registres d'assistència dels alumnes d'aquest grup en el període
+      let minutsAssistitsGrup = 0;
+      let minutsJustificatsGrup = 0;
+      if (alumnesIds.length > 0) {
+        const { data: registres, error: errReg } = await supabaseAdmin
+          .from('registres')
+          .select('minuts_assistits, minuts_justificats, data')
+          .in('alumne_id', alumnesIds)
+          .gte('data', data_inici)
+          .lte('data', data_fi);
+        if (errReg) throw new Error(errReg.message);
+
+        // Sumar només els registres en dies lectius (respectant dies no lectius)
+        registres.forEach(r => {
+          if (!diesNoLectiusSet.has(r.data)) {
+            minutsAssistitsGrup += r.minuts_assistits || 0;
+            minutsJustificatsGrup += r.minuts_justificats || 0;
+          }
+        });
+      }
+
+      const percentAssistit = minutsTeorics > 0 ? (minutsAssistitsGrup / minutsTeorics) * 100 : 0;
+      const percentAssistitJustificat = minutsTeorics > 0 ? ((minutsAssistitsGrup + minutsJustificatsGrup) / minutsTeorics) * 100 : 0;
+
+      function formatHores(minuts) {
+        const h = Math.floor(minuts / 60);
+        const m = minuts % 60;
+        if (h === 0) return `${m} min`;
+        if (m === 0) return `${h} h`;
+        return `${h} h ${m} min`;
+      }
+
+      resultat.push({
+        grup_id: grup.id,
+        grup_nom: grup.nom,
+        hores_teoric: formatHores(minutsTeorics),
+        hores_assistit: formatHores(minutsAssistitsGrup),
+        hores_justificat: formatHores(minutsJustificatsGrup),
+        percent_assistit: Math.round(percentAssistit * 100) / 100,
+        percent_assistit_justificat: Math.round(percentAssistitJustificat * 100) / 100,
+      });
+    }
+
+    res.json({
+      data_inici,
+      data_fi,
+        grups: resultat
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==========================================
+// INFORME: ALERTES D'ASSISTÈNCIA
+// ==========================================
+
+app.get('/informes/alertes', async (req, res) => {
+  const { grup_id, data_inici, data_fi, llindar_personalitzat } = req.query;
+  
+  if (!data_inici || !data_fi) {
+    return res.status(400).json({ error: 'Falten les dates' });
+  }
+
+  try {
+    // Obtenir els grups (si es filtra per grup_id, només un)
+    let queryGrups = supabaseAdmin.from('grups').select('id, nom, llindar_assistencia');
+    if (grup_id) {
+      queryGrups = queryGrups.eq('id', grup_id);
+    }
+    const { data: grups, error: errGrups } = await queryGrups;
+    if (errGrups) throw new Error(errGrups.message);
+
+    const alertes = [];
+
+    for (const grup of grups) {
+      // Obtenir horaris del grup
+      const { data: horaris, error: errHor } = await supabaseAdmin
+        .from('horaris')
+        .select('dia_setmana, durada_min')
+        .eq('grup_id', grup.id);
+      if (errHor) throw new Error(errHor.message);
+
+      // Obtenir dies no lectius
+      const { data: diesNoLectius, error: errDies } = await supabaseAdmin
+        .from('dies_no_lectius')
+        .select('data')
+        .eq('grup_id', grup.id)
+        .gte('data', data_inici)
+        .lte('data', data_fi);
+      if (errDies) throw new Error(errDies.message);
+      const diesNoLectiusSet = new Set(diesNoLectius.map(d => d.data));
+
+      // Calcular minuts teòrics totals per a qualsevol alumne del grup
+      const dataIniciDate = new Date(data_inici);
+      const dataFiDate = new Date(data_fi);
+      let minutsTeorics = 0;
+      
+      for (let d = new Date(dataIniciDate); d <= dataFiDate; d.setDate(d.getDate() + 1)) {
+        const dataStr = d.toISOString().split('T')[0];
+        if (diesNoLectiusSet.has(dataStr)) continue;
+        const diaSetmana = d.getDay() === 0 ? 7 : d.getDay();
+        horaris.forEach(h => {
+          if (h.dia_setmana === diaSetmana) {
+            minutsTeorics += h.durada_min;
+          }
+        });
+      }
+
+      // Si no hi ha hores teòriques, saltar aquest grup
+      if (minutsTeorics === 0) continue;
+
+      // Obtenir alumnes actius del grup
+      const { data: alumnes, error: errAl } = await supabaseAdmin
+        .from('alumnes')
+        .select('id, nom, cognoms')
+        .eq('grup_id', grup.id)
+        .eq('actiu', true);
+      if (errAl) throw new Error(errAl.message);
+      
+      if (alumnes.length === 0) continue;
+
+      const alumnesIds = alumnes.map(a => a.id);
+
+      // Obtenir registres d'assistència
+      const { data: registres, error: errReg } = await supabaseAdmin
+        .from('registres')
+        .select('alumne_id, minuts_assistits, minuts_justificats, data')
+        .in('alumne_id', alumnesIds)
+        .gte('data', data_inici)
+        .lte('data', data_fi);
+      if (errReg) throw new Error(errReg.message);
+
+      // Agrupar registres per alumne
+      const registresPerAlumne = {};
+      registres.forEach(r => {
+        if (!registresPerAlumne[r.alumne_id]) {
+          registresPerAlumne[r.alumne_id] = [];
+        }
+        registresPerAlumne[r.alumne_id].push(r);
+      });
+
+      // Funció per formatar hores
+      function formatHores(minuts) {
+        const h = Math.floor(minuts / 60);
+        const m = minuts % 60;
+        if (h === 0) return `${m} min`;
+        if (m === 0) return `${h} h`;
+        return `${h} h ${m} min`;
+      }
+
+      // Calcular per cada alumne
+      for (const alumne of alumnes) {
+        const registresAlumne = registresPerAlumne[alumne.id] || [];
+        let minutsAssistits = 0;
+        let minutsJustificats = 0;
+        
+        registresAlumne.forEach(r => {
+          if (!diesNoLectiusSet.has(r.data)) {
+            minutsAssistits += r.minuts_assistits || 0;
+            minutsJustificats += r.minuts_justificats || 0;
+          }
+        });
+        
+        const percentAssistit = (minutsAssistits / minutsTeorics) * 100;
+        
+        // Determinar el llindar (personalitzat o el del grup)
+        const llindar = llindar_personalitzat 
+          ? parseFloat(llindar_personalitzat) 
+          : grup.llindar_assistencia;
+        
+        // Si està per sota del llindar, afegir a alertes
+        if (percentAssistit < llindar) {
+          alertes.push({
+            alumne_id: alumne.id,
+            alumne_nom: alumne.nom,
+            alumne_cognoms: alumne.cognoms,
+            grup_id: grup.id,
+            grup_nom: grup.nom,
+            hores_teoric: formatHores(minutsTeorics),
+            hores_assistit: formatHores(minutsAssistits),
+            minuts_teoric: minutsTeorics,
+            minuts_assistit: minutsAssistits,
+            percent_assistit: Math.round(percentAssistit * 100) / 100,
+            llindar: llindar,
+            llindar_grup: grup.llindar_assistencia,
+            llindar_personalitzat_utilitzat: llindar_personalitzat ? true : false
+          });
+        }
+      }
+    }
+
+    // Ordenar alertes per percentatge (de menor a major)
+    alertes.sort((a, b) => a.percent_assistit - b.percent_assistit);
+
+    res.json({
+      data_inici,
+      data_fi,
+      total_alertes: alertes.length,
+      alertes
+    });
+    
+  } catch (error) {
+    console.error('Error generant alertes:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
+
+
+// ==========================================
 // INICI DEL SERVIDOR
 // ==========================================
 
