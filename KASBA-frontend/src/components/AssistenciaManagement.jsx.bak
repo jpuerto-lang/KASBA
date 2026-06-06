@@ -194,19 +194,9 @@ export default function AssistenciaManagement() {
     <div>
       <h2>Registre d'assistència</h2>
 
-      {/* Formulari de selecció - Millorat amb més separació */}
-      <div style={{ 
-        marginBottom: 20, 
-        padding: 16, 
-        border: '1px solid #e0ddd5', 
-        borderRadius: 10, 
-        background: '#fff', 
-        display: 'flex', 
-        gap: 20, 
-        alignItems: 'flex-end', 
-        flexWrap: 'wrap' 
-      }}>
-        <div style={{ flex: 1, minWidth: 200 }}>
+      {/* Formulari de selecció - Millorat */}
+      <div style={{ marginBottom: 20, padding: 16, border: '1px solid #e0ddd5', borderRadius: 10, background: '#fff', display: 'flex', gap: 16, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: 180 }}>
           <label style={{ display: 'block', fontSize: 12, color: '#6b6a64', marginBottom: 5, fontWeight: 500 }}>Grup</label>
           <select 
             value={grupId} 
@@ -217,31 +207,20 @@ export default function AssistenciaManagement() {
             {grups.map(g => <option key={g.id} value={g.id}>{g.nom}</option>)}
           </select>
         </div>
-        <div style={{ minWidth: 240 }}>
+        <div style={{ minWidth: 200 }}>
           <label style={{ display: 'block', fontSize: 12, color: '#6b6a64', marginBottom: 5, fontWeight: 500 }}>Data</label>
           <input 
             type="date" 
             value={data} 
             onChange={e => setData(e.target.value)} 
-            style={{ 
-              width: '100%', 
-              padding: '10px 12px', 
-              border: '2px solid #2d5be3', 
-              borderRadius: 6, 
-              background: '#fff', 
-              color: '#1a1a18', 
-              fontSize: 14, 
-              cursor: 'pointer',
-              fontFamily: 'system-ui, sans-serif',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
-            }} 
+            style={{ width: '100%', padding: '10px 12px', border: '1px solid #c0bdb5', borderRadius: 6, background: '#fff', color: '#1a1a18', fontSize: 14, cursor: 'pointer', fontFamily: 'system-ui, sans-serif' }} 
           />
         </div>
-        <div style={{ minWidth: 160 }}>
+        <div>
           <button 
             onClick={carregarSessions} 
             disabled={!grupId || !data} 
-            style={{ background: '#2d5be3', color: '#fff', border: 'none', borderRadius: 6, padding: '10px 24px', fontSize: 13, fontWeight: 500, cursor: 'pointer', height: 42, whiteSpace: 'nowrap', width: '100%' }}
+            style={{ background: '#2d5be3', color: '#fff', border: 'none', borderRadius: 6, padding: '10px 24px', fontSize: 13, fontWeight: 500, cursor: 'pointer', height: 42, whiteSpace: 'nowrap' }}
           >
             Carregar sessions
           </button>

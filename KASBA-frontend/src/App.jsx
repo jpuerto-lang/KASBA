@@ -5,7 +5,7 @@ import AlumneManagement from './components/AlumneManagement'
 import MateriaManagement from './components/MateriaManagement'
 import HorariPerDia from './components/HorariPerDia'
 import AssistenciaManagement from './components/AssistenciaManagement'
-import HorariGrup from './components/HorariGrup'          // 👈 Nou import
+import HorariGrup from './components/HorariGrup'
 
 export default function App() {
   const [seccio, setSeccio] = useState('professors')
@@ -19,8 +19,8 @@ export default function App() {
         <button onClick={() => setSeccio('grups')} style={{ background: seccio === 'grups' ? '#2d5be3' : '#f0eee8', color: seccio === 'grups' ? '#fff' : '#000', border: 'none', padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}>👥 Grups</button>
         <button onClick={() => setSeccio('alumnes')} style={{ background: seccio === 'alumnes' ? '#2d5be3' : '#f0eee8', color: seccio === 'alumnes' ? '#fff' : '#000', border: 'none', padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}>🧑‍🎓 Alumnes</button>
         <button onClick={() => setSeccio('materies')} style={{ background: seccio === 'materies' ? '#2d5be3' : '#f0eee8', color: seccio === 'materies' ? '#fff' : '#000', border: 'none', padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}>📚 Matèries</button>
-        <button onClick={() => setSeccio('horaris')} style={{ background: seccio === 'horaris' ? '#2d5be3' : '#f0eee8', color: seccio === 'horaris' ? '#fff' : '#000', border: 'none', padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}>📅 Horaris (ràpid)</button>
-        <button onClick={() => setSeccio('horari_grup')} style={{ background: seccio === 'horari_grup' ? '#2d5be3' : '#f0eee8', color: seccio === 'horari_grup' ? '#fff' : '#000', border: 'none', padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}>📋 Horari complet</button>
+        <button onClick={() => setSeccio('horaris')} style={{ background: seccio === 'horaris' ? '#2d5be3' : '#f0eee8', color: seccio === 'horaris' ? '#fff' : '#000', border: 'none', padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}>📅 Horari (Disseny)</button>
+        <button onClick={() => setSeccio('horari_grup')} style={{ background: seccio === 'horari_grup' ? '#2d5be3' : '#f0eee8', color: seccio === 'horari_grup' ? '#fff' : '#000', border: 'none', padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}>📋 Horari (Visor)</button>
         <button onClick={() => setSeccio('assistencia')} style={{ background: seccio === 'assistencia' ? '#2d5be3' : '#f0eee8', color: seccio === 'assistencia' ? '#fff' : '#000', border: 'none', padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}>✍️ Assistència</button>
         <button onClick={() => alert('Properament: Informes')} style={{ background: '#f0eee8', border: 'none', padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}>📊 Informes</button>
       </nav>

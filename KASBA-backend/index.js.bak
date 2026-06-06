@@ -17,10 +17,6 @@ const app = express()
 app.use(cors({ origin: 'http://localhost:5173' }))
 app.use(express.json())
 
-// ==========================================
-// RUTES PER A PROFESSORS
-// ==========================================
-
 app.get('/professors', async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('professors').select('*').order('nom')
@@ -66,61 +62,75 @@ app.delete('/professors/:id', async (req, res) => {
 // RUTES PER A GRUPS
 // ==========================================
 
+// 1. Llistar tots els grups
 app.get('/grups', async (req, res) => {
+  // Fem un JOIN amb 'professors' per obtenir el nom del professor directament
   const { data, error } = await supabaseAdmin
     .from('grups')
     .select('*, professors(nom)') 
     .order('nom');
+  
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
 
+// 2. Crear un nou grup
 app.post('/grups', async (req, res) => {
   const { nom, curs, professor_id, llindar_assistencia } = req.body;
+  
   if (!nom || !curs) {
     return res.status(400).json({ error: 'El nom i el curs són obligatoris' });
   }
+
   const { data, error } = await supabaseAdmin
     .from('grups')
     .insert([{ 
       nom, 
       curs, 
       professor_id: professor_id || null, 
-      llindar_assistencia: llindar_assistencia || 80
+      llindar_assistencia: llindar_assistencia || 80 // Valor per defecte 80%
     }])
     .select()
-    .single();
+    .single(); // .single() retorna l'objecte en lloc d'un array
+
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
 
+// 3. Actualitzar un grup
 app.put('/grups/:id', async (req, res) => {
   const { id } = req.params;
   const { nom, curs, professor_id, llindar_assistencia } = req.body;
+
   const { data, error } = await supabaseAdmin
     .from('grups')
     .update({ nom, curs, professor_id, llindar_assistencia })
     .eq('id', id)
     .select()
     .single();
+
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
 
+// 4. Eliminar un grup
 app.delete('/grups/:id', async (req, res) => {
   const { id } = req.params;
+  
   const { error } = await supabaseAdmin
     .from('grups')
     .delete()
     .eq('id', id);
+
   if (error) return res.status(500).json({ error: error.message });
   res.json({ ok: true });
 });
 
 // ==========================================
-// RUTES PER A ALUMNES
+// RUTES PER A ALUMNES (amb EMAIL)
 // ==========================================
 
+// Llistar alumnes (amb nom del grup associat)
 app.get('/alumnes', async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('alumnes')
@@ -130,6 +140,7 @@ app.get('/alumnes', async (req, res) => {
   res.json(data);
 });
 
+// Crear alumne (ara amb email)
 app.post('/alumnes', async (req, res) => {
   const { nom, cognoms, email, dni, grup_id, actiu } = req.body;
   if (!nom || !cognoms) {
@@ -144,6 +155,7 @@ app.post('/alumnes', async (req, res) => {
   res.json(data);
 });
 
+// Actualitzar alumne (ara amb email)
 app.put('/alumnes/:id', async (req, res) => {
   const { id } = req.params;
   const { nom, cognoms, email, dni, grup_id, actiu } = req.body;
@@ -157,6 +169,7 @@ app.put('/alumnes/:id', async (req, res) => {
   res.json(data);
 });
 
+// Eliminar alumne
 app.delete('/alumnes/:id', async (req, res) => {
   const { id } = req.params;
   const { error } = await supabaseAdmin
@@ -216,15 +229,15 @@ app.delete('/materies/:id', async (req, res) => {
 });
 
 // ==========================================
-// RUTES PER A HORARIS (amb filtre per grup)
+// RUTES PER A HORARIS (abans sessions)
 // ==========================================
 
 app.get('/horaris', async (req, res) => {
-  let query = supabaseAdmin.from('horaris').select('*, materies(nom), grups(nom)');
-  if (req.query.grup_id) {
-    query = query.eq('grup_id', req.query.grup_id);
-  }
-  const { data, error } = await query.order('dia_setmana').order('hora_inici');
+  const { data, error } = await supabaseAdmin
+    .from('horaris')
+    .select(`*, grups(nom), materies(nom)`)
+    .order('dia_setmana')
+    .order('hora_inici');
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
@@ -267,9 +280,94 @@ app.delete('/horaris/:id', async (req, res) => {
 });
 
 // ==========================================
+// RUTES PER A ASSISTÈNCIA
+// ==========================================
+
+// Funció auxiliar per obtenir el dia de la setmana (1=dl, 7=dg)
+function getDiaSetmana(data) {
+  const date = new Date(data);
+  let dia = date.getDay(); // 0=diumenge, 1=dilluns, ..., 6=dissabte
+  // Convertim a 1=dilluns, 7=diumenge
+  return dia === 0 ? 7 : dia;
+}
+
+// GET /assistencia/config?grup_id=xxx&data=YYYY-MM-DD
+app.get('/assistencia/config', async (req, res) => {
+  const { grup_id, data } = req.query;
+  if (!grup_id || !data) {
+    return res.status(400).json({ error: 'Falten grup_id o data' });
+  }
+
+  const diaSetmana = getDiaSetmana(data);
+
+  // 1. Sessions del grup per aquest dia de la setmana
+  const { data: sessions, error: errSessions } = await supabaseAdmin
+    .from('horaris')
+    .select(`*, materies(nom)`)
+    .eq('grup_id', grup_id)
+    .eq('dia_setmana', diaSetmana)
+    .order('hora_inici');
+
+  if (errSessions) return res.status(500).json({ error: errSessions.message });
+
+  // 2. Alumnes del grup (només actius)
+  const { data: alumnes, error: errAlumnes } = await supabaseAdmin
+    .from('alumnes')
+    .select('id, nom, cognoms')
+    .eq('grup_id', grup_id)
+    .eq('actiu', true)
+    .order('nom');
+
+  if (errAlumnes) return res.status(500).json({ error: errAlumnes.message });
+
+// 3. Registres existents per a aquesta data i sessions
+  const sessionIds = sessions.map(s => s.id);
+  let registresExistents = [];
+  if (sessionIds.length > 0) {
+    const { data: registres, error: errReg } = await supabaseAdmin
+      .from('registres')
+      .select('*, minuts_justificats')
+      .in('horari_id', sessionIds)
+      .eq('data', data);
+    if (!errReg) registresExistents = registres;
+  }
+
+  res.json({
+    sessions,
+    alumnes,
+    registresExistents
+  });
+});
+
+// POST /assistencia/guardar
+app.post('/assistencia/guardar', async (req, res) => {
+  const { data, registres } = req.body;
+  if (!data || !Array.isArray(registres)) {
+    return res.status(400).json({ error: 'Falten dades o format incorrecte' });
+  }
+
+  const registresPerUpsert = registres.map(r => ({
+    alumne_id: r.alumne_id,
+    horari_id: r.horari_id,
+    data: data,
+    minuts_assistits: r.minuts_assistits || 0,
+    minuts_justificats: r.minuts_justificats || 0,
+    observacions: r.observacions || null
+  }));
+
+  const { error } = await supabaseAdmin
+    .from('registres')
+    .upsert(registresPerUpsert, { onConflict: 'alumne_id, horari_id, data' });
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
+// ==========================================
 // RUTES PER A HORARIS PER DIA (gestió ràpida)
 // ==========================================
 
+// Obtenir totes les franges d'un grup per a un dia concret
 app.get('/horaris/grup-dia', async (req, res) => {
   const { grup_id, dia_setmana } = req.query;
   if (!grup_id || !dia_setmana) {
@@ -285,6 +383,7 @@ app.get('/horaris/grup-dia', async (req, res) => {
   res.json(data);
 });
 
+// Guardar (reemplaçar) totes les franges d'un grup per a un dia
 app.post('/horaris/grup-dia', async (req, res) => {
   const { grup_id, dia_setmana, franges } = req.body;
   if (!grup_id || !dia_setmana || !Array.isArray(franges)) {
@@ -325,82 +424,17 @@ app.post('/horaris/grup-dia', async (req, res) => {
 });
 
 // ==========================================
-// RUTES PER A ASSISTÈNCIA
+// LLISTAR HORARIS PER GRUP
 // ==========================================
 
-function getDiaSetmana(data) {
-  const date = new Date(data);
-  let dia = date.getDay();
-  return dia === 0 ? 7 : dia;
-}
-
-app.get('/assistencia/config', async (req, res) => {
-  const { grup_id, data } = req.query;
-  if (!grup_id || !data) {
-    return res.status(400).json({ error: 'Falten grup_id o data' });
+app.get('/horaris', async (req, res) => {
+  let query = supabaseAdmin.from('horaris').select('*, materies(nom), grups(nom)');
+  if (req.query.grup_id) {
+    query = query.eq('grup_id', req.query.grup_id);
   }
-
-  const diaSetmana = getDiaSetmana(data);
-
-  const { data: sessions, error: errSessions } = await supabaseAdmin
-    .from('horaris')
-    .select(`*, materies(nom)`)
-    .eq('grup_id', grup_id)
-    .eq('dia_setmana', diaSetmana)
-    .order('hora_inici');
-
-  if (errSessions) return res.status(500).json({ error: errSessions.message });
-
-  const { data: alumnes, error: errAlumnes } = await supabaseAdmin
-    .from('alumnes')
-    .select('id, nom, cognoms')
-    .eq('grup_id', grup_id)
-    .eq('actiu', true)
-    .order('nom');
-
-  if (errAlumnes) return res.status(500).json({ error: errAlumnes.message });
-
-  const sessionIds = sessions.map(s => s.id);
-  let registresExistents = [];
-  if (sessionIds.length > 0) {
-    const { data: registres, error: errReg } = await supabaseAdmin
-      .from('registres')
-      .select('*, minuts_justificats')
-      .in('horari_id', sessionIds)
-      .eq('data', data);
-    if (!errReg) registresExistents = registres;
-  }
-
-  res.json({ sessions, alumnes, registresExistents });
-});
-
-app.post('/assistencia/guardar', async (req, res) => {
-  const { data, registres } = req.body;
-  if (!data || !Array.isArray(registres)) {
-    return res.status(400).json({ error: 'Falten dades o format incorrecte' });
-  }
-
-  const registresPerUpsert = registres.map(r => ({
-    alumne_id: r.alumne_id,
-    horari_id: r.horari_id,
-    data: data,
-    minuts_assistits: r.minuts_assistits || 0,
-    minuts_justificats: r.minuts_justificats || 0,
-    observacions: r.observacions || null
-  }));
-
-  const { error } = await supabaseAdmin
-    .from('registres')
-    .upsert(registresPerUpsert, { onConflict: 'alumne_id, horari_id, data' });
-
+  const { data, error } = await query.order('dia_setmana').order('hora_inici');
   if (error) return res.status(500).json({ error: error.message });
-  res.json({ ok: true });
+  res.json(data);
 });
 
-// ==========================================
-// INICI DEL SERVIDOR
-// ==========================================
-
-//app.listen(3000, () => console.log('Backend corrent a http://localhost:3000'))
-app.listen(3000, '0.0.0.0', () => console.log('Backend corrent a http://0.0.0.0:3000'))
-
+app.listen(3000, () => console.log('Backend corrent a http://localhost:3000'))
