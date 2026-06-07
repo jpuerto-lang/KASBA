@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-
-const API = 'http://localhost:3000';
+import { apiFetch } from '../api';
 
 export default function MateriaManagement() {
   const [materies, setMateries] = useState([]);
@@ -16,9 +15,13 @@ export default function MateriaManagement() {
 
   async function carregarMateries() {
     setLoading(true);
-    const res = await fetch(`${API}/materies`);
+    const res = await apiFetch('/materies');
     const data = await res.json();
-    setMateries(Array.isArray(data) ? data : []);
+    if (res.ok) {
+      setMateries(Array.isArray(data) ? data : []);
+    } else {
+      setMissatge({ tipus: 'error', text: data.error || 'Error carregant matèries' });
+    }
     setLoading(false);
   }
 
@@ -27,12 +30,11 @@ export default function MateriaManagement() {
     setSaving(true);
     setMissatge(null);
 
-    const url = editingId ? `${API}/materies/${editingId}` : `${API}/materies`;
+    const url = editingId ? `/materies/${editingId}` : '/materies';
     const method = editingId ? 'PUT' : 'POST';
 
-    const res = await fetch(url, {
+    const res = await apiFetch(url, {
       method,
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(form),
     });
 
@@ -58,12 +60,13 @@ export default function MateriaManagement() {
 
   async function eliminar(id, nom) {
     if (!confirm(`Segur que vols eliminar la matèria "${nom}"?`)) return;
-    const res = await fetch(`${API}/materies/${id}`, { method: 'DELETE' });
+    const res = await apiFetch(`/materies/${id}`, { method: 'DELETE' });
     if (res.ok) {
       setMissatge({ tipus: 'ok', text: `Matèria "${nom}" eliminada` });
       carregarMateries();
     } else {
-      setMissatge({ tipus: 'error', text: 'Error en eliminar la matèria' });
+      const data = await res.json();
+      setMissatge({ tipus: 'error', text: data.error || 'Error en eliminar la matèria' });
     }
   }
 
@@ -147,27 +150,29 @@ export default function MateriaManagement() {
           </p>
         )}
         {materies.length > 0 && (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead>
-              <tr style={{ background: '#f5f4f0' }}>
-                <th style={{ textAlign: 'left', padding: '12px 12px', color: '#6b6a64', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.5px', fontSize: 11 }}>Nom</th>
-                <th style={{ textAlign: 'left', padding: '12px 12px', color: '#6b6a64', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.5px', fontSize: 11 }}>Descripció</th>
-                <th style={{ textAlign: 'center', padding: '12px 12px', color: '#6b6a64', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.5px', fontSize: 11 }}>Accions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {materies.map(m => (
-                <tr key={m.id} style={{ borderTop: '1px solid #e0ddd5' }}>
-                  <td style={{ padding: '12px 12px', color: '#1a1a18' }}><strong>{m.nom}</strong></td>
-                  <td style={{ padding: '12px 12px', color: '#1a1a18' }}>{m.descripcio || '-'}</td>
-                  <td style={{ padding: '12px 12px', textAlign: 'center' }}>
-                    <button onClick={() => editar(m)} style={{ background: 'none', border: 'none', color: '#2d5be3', cursor: 'pointer', fontSize: 16, marginRight: 12 }} title="Editar">✏️</button>
-                    <button onClick={() => eliminar(m.id, m.nom)} style={{ background: 'none', border: 'none', color: '#b83232', cursor: 'pointer', fontSize: 16 }} title="Eliminar">🗑️</button>
-                  </td>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: '#f5f4f0' }}>
+                  <th style={{ textAlign: 'left', padding: '12px 12px', color: '#6b6a64', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.5px', fontSize: 11 }}>Nom</th>
+                  <th style={{ textAlign: 'left', padding: '12px 12px', color: '#6b6a64', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.5px', fontSize: 11 }}>Descripció</th>
+                  <th style={{ textAlign: 'center', padding: '12px 12px', color: '#6b6a64', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.5px', fontSize: 11 }}>Accions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {materies.map(m => (
+                  <tr key={m.id} style={{ borderTop: '1px solid #e0ddd5' }}>
+                    <td style={{ padding: '12px 12px', color: '#1a1a18' }}><strong>{m.nom}</strong></td>
+                    <td style={{ padding: '12px 12px', color: '#1a1a18' }}>{m.descripcio || '-'}</td>
+                    <td style={{ padding: '12px 12px', textAlign: 'center' }}>
+                      <button onClick={() => editar(m)} style={{ background: 'none', border: 'none', color: '#2d5be3', cursor: 'pointer', fontSize: 16, marginRight: 12 }} title="Editar">✏️</button>
+                      <button onClick={() => eliminar(m.id, m.nom)} style={{ background: 'none', border: 'none', color: '#b83232', cursor: 'pointer', fontSize: 16 }} title="Eliminar">🗑️</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>

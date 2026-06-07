@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-
-const API = 'http://localhost:3000';
+import { apiFetch } from '../api';
 
 export default function AlumneManagement() {
   const [alumnes, setAlumnes] = useState([]);
@@ -18,16 +17,22 @@ export default function AlumneManagement() {
 
   async function carregarAlumnes() {
     setLoading(true);
-    const res = await fetch(`${API}/alumnes`);
+    const res = await apiFetch('/alumnes');
     const data = await res.json();
-    setAlumnes(Array.isArray(data) ? data : []);
+    if (res.ok) {
+      setAlumnes(Array.isArray(data) ? data : []);
+    } else {
+      setMissatge({ tipus: 'error', text: data.error || 'Error carregant alumnes' });
+    }
     setLoading(false);
   }
 
   async function carregarGrups() {
-    const res = await fetch(`${API}/grups`);
+    const res = await apiFetch('/grups');
     const data = await res.json();
-    setGrups(Array.isArray(data) ? data : []);
+    if (res.ok) {
+      setGrups(Array.isArray(data) ? data : []);
+    }
   }
 
   async function handleSubmit(e) {
@@ -35,12 +40,11 @@ export default function AlumneManagement() {
     setSaving(true);
     setMissatge(null);
 
-    const url = editingId ? `${API}/alumnes/${editingId}` : `${API}/alumnes`;
+    const url = editingId ? `/alumnes/${editingId}` : '/alumnes';
     const method = editingId ? 'PUT' : 'POST';
 
-    const res = await fetch(url, {
+    const res = await apiFetch(url, {
       method,
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(form),
     });
 
@@ -69,12 +73,13 @@ export default function AlumneManagement() {
 
   async function eliminar(id, nomComplet) {
     if (!confirm(`Segur que vols eliminar l'alumne "${nomComplet}"?`)) return;
-    const res = await fetch(`${API}/alumnes/${id}`, { method: 'DELETE' });
+    const res = await apiFetch(`/alumnes/${id}`, { method: 'DELETE' });
     if (res.ok) {
       setMissatge({ tipus: 'ok', text: `Alumne "${nomComplet}" eliminat` });
       carregarAlumnes();
     } else {
-      setMissatge({ tipus: 'error', text: 'Error en eliminar l\'alumne' });
+      const data = await res.json();
+      setMissatge({ tipus: 'error', text: data.error || 'Error en eliminar l\'alumne' });
     }
   }
 
@@ -139,9 +144,8 @@ export default function AlumneManagement() {
       const errorsList = [];
 
       for (const alumne of alumnesPerImportar) {
-        const res = await fetch(`${API}/alumnes`, {
+        const res = await apiFetch('/alumnes', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(alumne)
         });
         const data = await res.json();

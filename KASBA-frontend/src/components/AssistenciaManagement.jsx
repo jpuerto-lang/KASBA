@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-
-const API = 'http://localhost:3000';
+import { apiFetch } from '../api';
 
 const dies = {
   1: 'Dilluns', 2: 'Dimarts', 3: 'Dimecres', 4: 'Dijous', 5: 'Divendres', 6: 'Dissabte', 7: 'Diumenge'
@@ -24,9 +23,13 @@ export default function AssistenciaManagement() {
   }, []);
 
   async function carregarGrups() {
-    const res = await fetch(`${API}/grups`);
+    const res = await apiFetch('/grups');
     const data = await res.json();
-    setGrups(Array.isArray(data) ? data : []);
+    if (res.ok) {
+      setGrups(Array.isArray(data) ? data : []);
+    } else {
+      setMissatge({ tipus: 'error', text: data.error || 'Error carregant grups' });
+    }
   }
 
   function obtenirDiaSetmana(dataStr) {
@@ -47,7 +50,7 @@ export default function AssistenciaManagement() {
       const diaNum = obtenirDiaSetmana(data);
       setDiaSetmana(diaNum);
       
-      const res = await fetch(`${API}/horaris?grup_id=${grupId}`);
+      const res = await apiFetch(`/horaris?grup_id=${grupId}`);
       const totesSessions = await res.json();
       if (!res.ok) throw new Error(totesSessions.error);
       
@@ -72,12 +75,13 @@ export default function AssistenciaManagement() {
     setMissatge(null);
     
     try {
-      const resAlumnes = await fetch(`${API}/alumnes`);
+      const resAlumnes = await apiFetch('/alumnes');
       const totsAlumnes = await resAlumnes.json();
+      if (!resAlumnes.ok) throw new Error(totsAlumnes.error || 'Error carregant alumnes');
       const alumnesGrup = (Array.isArray(totsAlumnes) ? totsAlumnes : []).filter(a => a.grup_id === grupId && a.actiu === true);
       setAlumnes(alumnesGrup);
       
-      const resRegistres = await fetch(`${API}/assistencia/config?grup_id=${grupId}&data=${data}`);
+      const resRegistres = await apiFetch(`/assistencia/config?grup_id=${grupId}&data=${data}`);
       const config = await resRegistres.json();
       if (!resRegistres.ok) throw new Error(config.error);
       
@@ -170,9 +174,8 @@ export default function AssistenciaManagement() {
 
     setSaving(true);
     try {
-      const res = await fetch(`${API}/assistencia/guardar`, {
+      const res = await apiFetch('/assistencia/guardar', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ data, registres: registresAGuardar }),
       });
       const result = await res.json();

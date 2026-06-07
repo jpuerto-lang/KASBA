@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-
-const API = 'http://localhost:3000';
+import { apiFetch } from '../api';
 
 const dies = {
   1: 'Dilluns', 2: 'Dimarts', 3: 'Dimecres', 4: 'Dijous', 5: 'Divendres', 6: 'Dissabte', 7: 'Diumenge'
@@ -22,15 +21,23 @@ export default function HorariPerDia() {
   }, []);
 
   async function carregarGrups() {
-    const res = await fetch(`${API}/grups`);
+    const res = await apiFetch('/grups');
     const data = await res.json();
-    setGrups(Array.isArray(data) ? data : []);
+    if (res.ok) {
+      setGrups(Array.isArray(data) ? data : []);
+    } else {
+      setMissatge({ tipus: 'error', text: data.error || 'Error carregant grups' });
+    }
   }
 
   async function carregarMateries() {
-    const res = await fetch(`${API}/materies`);
+    const res = await apiFetch('/materies');
     const data = await res.json();
-    setMateries(Array.isArray(data) ? data : []);
+    if (res.ok) {
+      setMateries(Array.isArray(data) ? data : []);
+    } else {
+      setMissatge({ tipus: 'error', text: data.error || 'Error carregant matèries' });
+    }
   }
 
   async function carregarFranges() {
@@ -38,10 +45,9 @@ export default function HorariPerDia() {
     setLoading(true);
     setMissatge(null);
     try {
-      const res = await fetch(`${API}/horaris/grup-dia?grup_id=${grupId}&dia_setmana=${diaSetmana}`);
+      const res = await apiFetch(`/horaris/grup-dia?grup_id=${grupId}&dia_setmana=${diaSetmana}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      // Convertir les dades al format de franges del formulari
       const frangesForm = data.map(f => ({
         id: f.id,
         hora_inici: f.hora_inici.slice(0,5),
@@ -73,7 +79,6 @@ export default function HorariPerDia() {
   }
 
   async function guardarFranges() {
-    // Validar que cada franja tingui matèria seleccionada i valors correctes
     for (let i = 0; i < franges.length; i++) {
       const f = franges[i];
       if (!f.materia_id) {
@@ -89,9 +94,8 @@ export default function HorariPerDia() {
     setSaving(true);
     setMissatge(null);
     try {
-      const res = await fetch(`${API}/horaris/grup-dia`, {
+      const res = await apiFetch('/horaris/grup-dia', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           grup_id: grupId,
           dia_setmana: diaSetmana,
@@ -105,7 +109,6 @@ export default function HorariPerDia() {
       const result = await res.json();
       if (!res.ok) throw new Error(result.error);
       setMissatge({ tipus: 'ok', text: 'Horari desat correctament!' });
-      // Recarregar per mostrar els ids (opcional)
       carregarFranges();
     } catch (err) {
       setMissatge({ tipus: 'error', text: err.message });

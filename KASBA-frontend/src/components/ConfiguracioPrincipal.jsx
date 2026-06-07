@@ -1,26 +1,27 @@
+// src/components/ConfiguracioPrincipal.jsx
 import { useState } from 'react';
-import AssistenciaAlumne from './InformeAssistencia';
-import AssistenciaMateria from './AssistenciaMateria';
-import AssistenciaGrup from './AssistenciaGrup';
-import AlertesAssistencia from './AlertesAssistencia';
+import ProfessorManagement from './ProfessorManagement';
+import GrupManagement from './GrupManagement';
+import MateriaManagement from './MateriaManagement';
+import HorariPerDia from './HorariPerDia';
+import DiesNoLectiusManagement from './DiesNoLectiusManagement';
 
-export default function InformesPrincipal() {
-  const [tab, setTab] = useState('alumne');
+export default function ConfiguracioPrincipal() {
+  const [tab, setTab] = useState('professors');
 
   const tabs = [
-    { id: 'alumne', nom: '📈 Assistència per alumne', component: <AssistenciaAlumne /> },
-    { id: 'materia', nom: '📚 Assistència per matèria', component: <AssistenciaMateria /> },
-    { id: 'grup', nom: '👥 Assistència per grup', component: <AssistenciaGrup /> },
-    { id: 'alertes', nom: '⚠️ Alertes', component: <AlertesAssistencia /> },
+    { id: 'professors', nom: '👨‍🏫 Professors', component: <ProfessorManagement /> },
+    { id: 'grups', nom: '👥 Grups', component: <GrupManagement /> },
+    { id: 'materies', nom: '📚 Matèries', component: <MateriaManagement /> },
+    { id: 'horaris', nom: '📅 Horari (Disseny)', component: <HorariPerDia /> },
+    { id: 'dies_no_lectius', nom: '📅 Dies no lectius', component: <DiesNoLectiusManagement /> },
   ];
 
   const activeTab = tabs.find(t => t.id === tab);
 
   return (
     <div>
-      <h2>📊 Informes</h2>
-      
-      {/* Pestanyes */}
+      <h2>🔧 Configuració</h2>
       <div style={{ 
         display: 'flex', 
         flexWrap: 'wrap', 
@@ -51,8 +52,6 @@ export default function InformesPrincipal() {
           </button>
         ))}
       </div>
-
-      {/* Contingut de la pestanya activa */}
       <div style={{ 
         background: '#fff', 
         border: '1px solid #e0ddd5', 

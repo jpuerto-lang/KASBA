@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-
-const API = 'http://localhost:3000';
+import { apiFetch } from '../api';
 
 export default function GrupManagement() {
   const [grups, setGrups] = useState([]);
@@ -18,16 +17,24 @@ export default function GrupManagement() {
 
   async function carregarGrups() {
     setLoading(true);
-    const res = await fetch(`${API}/grups`);
+    const res = await apiFetch('/grups');
     const data = await res.json();
-    setGrups(Array.isArray(data) ? data : []);
+    if (res.ok) {
+      setGrups(Array.isArray(data) ? data : []);
+    } else {
+      setMissatge({ tipus: 'error', text: data.error || 'Error carregant grups' });
+    }
     setLoading(false);
   }
 
   async function carregarProfessors() {
-    const res = await fetch(`${API}/professors`);
+    const res = await apiFetch('/professors');
     const data = await res.json();
-    setProfessors(Array.isArray(data) ? data : []);
+    if (res.ok) {
+      setProfessors(Array.isArray(data) ? data : []);
+    } else {
+      console.error('Error carregant professors:', data.error);
+    }
   }
 
   async function handleSubmit(e) {
@@ -35,12 +42,11 @@ export default function GrupManagement() {
     setSaving(true);
     setMissatge(null);
 
-    const url = editingId ? `${API}/grups/${editingId}` : `${API}/grups`;
+    const url = editingId ? `/grups/${editingId}` : '/grups';
     const method = editingId ? 'PUT' : 'POST';
 
-    const res = await fetch(url, {
+    const res = await apiFetch(url, {
       method,
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(form)
     });
     const data = await res.json();
@@ -68,12 +74,13 @@ export default function GrupManagement() {
 
   async function eliminar(id, nom) {
     if (!confirm(`Segur que vols eliminar el grup "${nom}"?`)) return;
-    const res = await fetch(`${API}/grups/${id}`, { method: 'DELETE' });
+    const res = await apiFetch(`/grups/${id}`, { method: 'DELETE' });
     if (res.ok) {
       setMissatge({ tipus: 'ok', text: `Grup "${nom}" eliminat` });
       carregarGrups();
     } else {
-      setMissatge({ tipus: 'error', text: 'Error en eliminar el grup' });
+      const data = await res.json();
+      setMissatge({ tipus: 'error', text: data.error || 'Error en eliminar el grup' });
     }
   }
 

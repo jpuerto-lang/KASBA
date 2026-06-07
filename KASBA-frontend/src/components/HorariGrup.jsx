@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-
-const API = 'http://localhost:3000';
+import { apiFetch } from '../api';
 
 const dies = {
   1: 'Dilluns',
@@ -24,9 +23,13 @@ export default function HorariGrup() {
   }, []);
 
   async function carregarGrups() {
-    const res = await fetch(`${API}/grups`);
+    const res = await apiFetch('/grups');
     const data = await res.json();
-    setGrups(Array.isArray(data) ? data : []);
+    if (res.ok) {
+      setGrups(Array.isArray(data) ? data : []);
+    } else {
+      setMissatge({ tipus: 'error', text: data.error || 'Error carregant grups' });
+    }
   }
 
   async function carregarHorari() {
@@ -35,7 +38,7 @@ export default function HorariGrup() {
     setMissatge(null);
     try {
       // Carregar tots els horaris del grup seleccionat
-      const res = await fetch(`${API}/horaris?grup_id=${grupId}`);
+      const res = await apiFetch(`/horaris?grup_id=${grupId}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       

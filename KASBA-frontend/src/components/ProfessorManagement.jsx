@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-
-const API = 'http://localhost:3000';
+import { apiFetch } from '../api';
 
 export default function ProfessorManagement() {
   const [professors, setProfessors] = useState([]);
@@ -16,10 +15,24 @@ export default function ProfessorManagement() {
 
   async function carregarProfessors() {
     setLoading(true);
-    const res = await fetch(`${API}/professors`);
-    const data = await res.json();
-    setProfessors(Array.isArray(data) ? data : []);
-    setLoading(false);
+    try {
+      const res = await apiFetch('/professors');
+      if (!res.ok) {
+        let errorMsg = await res.text();
+        try {
+          const data = JSON.parse(errorMsg);
+          errorMsg = data.error || errorMsg;
+        } catch { /* no fer res */ }
+        throw new Error(errorMsg);
+      }
+      const data = await res.json();
+      setProfessors(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setMissatge({ tipus: 'error', text: err.message });
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function handleSubmit(e) {
@@ -28,56 +41,57 @@ export default function ProfessorManagement() {
     setMissatge(null);
 
     const formData = { ...form };
-    if (editingId && !formData.password) {
-      delete formData.password;
-    }
+    if (editingId && !formData.password) delete formData.password;
 
-    const url = editingId ? `${API}/professors/${editingId}` : `${API}/professors`;
+    const url = editingId ? `/professors/${editingId}` : '/professors';
     const method = editingId ? 'PUT' : 'POST';
 
-    const res = await fetch(url, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(formData)
-    });
-    const data = await res.json();
-
-    if (!res.ok) {
-      setMissatge({ tipus: 'error', text: data.error });
-    } else {
-      setMissatge({ tipus: 'ok', text: editingId ? 'Professor actualitzat correctament' : 'Professor creat correctament' });
+    try {
+      const res = await apiFetch(url, { method, body: JSON.stringify(formData) });
+      if (!res.ok) {
+        let errorMsg = await res.text();
+        try {
+          const data = JSON.parse(errorMsg);
+          errorMsg = data.error || errorMsg;
+        } catch { /* no fer res */ }
+        throw new Error(errorMsg);
+      }
+      setMissatge({ tipus: 'ok', text: editingId ? 'Professor actualitzat' : 'Professor creat' });
       setForm({ email: '', nom: '', rol: 'professor', password: '' });
       setEditingId(null);
       carregarProfessors();
+    } catch (err) {
+      setMissatge({ tipus: 'error', text: err.message });
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   }
 
-  function editar(professor) {
+  function editar(prof) {
     setForm({
-      email: professor.email,
-      nom: professor.nom,
-      rol: professor.rol,
+      email: prof.email,
+      nom: prof.nom,
+      rol: prof.rol,
       password: ''
     });
-    setEditingId(professor.id);
+    setEditingId(prof.id);
   }
 
   async function eliminar(id, nom) {
-    if (!confirm(`Segur que vols eliminar el professor "${nom}"?`)) return;
-    const res = await fetch(`${API}/professors/${id}`, { method: 'DELETE' });
-    if (res.ok) {
+    if (!confirm(`Eliminar "${nom}"?`)) return;
+    try {
+      const res = await apiFetch(`/professors/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error(await res.text());
       setMissatge({ tipus: 'ok', text: `Professor "${nom}" eliminat` });
       carregarProfessors();
-    } else {
-      setMissatge({ tipus: 'error', text: 'Error en eliminar el professor' });
+    } catch (err) {
+      setMissatge({ tipus: 'error', text: err.message });
     }
   }
 
   function cancelarEdicio() {
     setForm({ email: '', nom: '', rol: 'professor', password: '' });
     setEditingId(null);
-    setMissatge(null);
   }
 
   async function handleCsvUpload(e) {
@@ -85,74 +99,45 @@ export default function ProfessorManagement() {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = async (event) => {
-      const text = event.target.result;
+    reader.onload = async (ev) => {
+      const text = ev.target.result;
       const lines = text.split('\n');
-      if (lines.length === 0) {
-        setMissatge({ tipus: 'error', text: 'El fitxer està buit' });
-        return;
-      }
+      if (lines.length < 2) return setMissatge({ tipus: 'error', text: 'CSV buit' });
 
       const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/"/g, ''));
-      
-      const emailIdx = headers.findIndex(h => h === 'email');
-      const nomIdx = headers.findIndex(h => h === 'nom');
-      const rolIdx = headers.findIndex(h => h === 'rol');
-      
-      if (emailIdx === -1 || nomIdx === -1) {
-        setMissatge({ tipus: 'error', text: 'El CSV ha de tenir columnes "email" i "nom"' });
-        return;
+      const idxEmail = headers.findIndex(h => h === 'email');
+      const idxNom = headers.findIndex(h => h === 'nom');
+      const idxRol = headers.findIndex(h => h === 'rol');
+      if (idxEmail === -1 || idxNom === -1) {
+        return setMissatge({ tipus: 'error', text: 'CSV ha de tenir columnes "email" i "nom"' });
       }
 
       const professorsPerImportar = [];
       for (let i = 1; i < lines.length; i++) {
         if (!lines[i].trim()) continue;
-        
-        const values = lines[i].split(',').map(v => v.trim().replace(/^"|"$/g, ''));
-        const email = values[emailIdx];
-        const nom = values[nomIdx];
-        const rol = values[rolIdx] || 'professor';
-        
-        if (email && nom) {
-          professorsPerImportar.push({
-            email,
-            nom,
-            rol,
-            password: 'temp123456'
-          });
-        }
+        const vals = lines[i].split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+        const email = vals[idxEmail];
+        const nom = vals[idxNom];
+        const rol = vals[idxRol] || 'professor';
+        if (email && nom) professorsPerImportar.push({ email, nom, rol, password: 'temp123456' });
       }
 
-      if (professorsPerImportar.length === 0) {
-        setMissatge({ tipus: 'error', text: 'No s\'han trobat dades vàlides al CSV' });
-        return;
-      }
+      if (!professorsPerImportar.length) return setMissatge({ tipus: 'error', text: 'No hi ha dades vàlides' });
 
       setSaving(true);
-      let creats = 0;
-      let errors = 0;
+      let creats = 0, errors = 0;
       const errorsList = [];
-
       for (const prof of professorsPerImportar) {
-        const res = await fetch(`${API}/professors`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(prof)
-        });
-        const data = await res.json();
-        if (res.ok) {
+        try {
+          const res = await apiFetch('/professors', { method: 'POST', body: JSON.stringify(prof) });
+          if (!res.ok) throw new Error(await res.text());
           creats++;
-        } else {
+        } catch (err) {
           errors++;
-          errorsList.push(`${prof.email}: ${data.error}`);
+          errorsList.push(`${prof.email}: ${err.message}`);
         }
       }
-
-      if (errors > 0) {
-        setMissatge({ tipus: 'error', text: `Importats ${creats} professors. Errors: ${errors}. ${errorsList.slice(0, 3).join('; ')}` });
-      } else {
-        setMissatge({ tipus: 'ok', text: `Importats ${creats} professors correctament!` });
-      }
+      setMissatge({ tipus: errors ? 'error' : 'ok', text: `Importats ${creats}. Errors: ${errors}${errorsList.length ? ' ' + errorsList.slice(0,2).join('; ') : ''}` });
       carregarProfessors();
       setSaving(false);
     };
@@ -161,34 +146,16 @@ export default function ProfessorManagement() {
   }
 
   function exportarCSV() {
-    if (professors.length === 0) {
-      setMissatge({ tipus: 'error', text: 'No hi ha professors per exportar.' });
-      return;
-    }
-
-    const headers = ['email', 'nom', 'rol'];
-    const csvRows = [headers.join(',')];
-    
-    professors.forEach(prof => {
-      const row = [
-        `"${prof.email}"`,
-        `"${prof.nom}"`,
-        `"${prof.rol}"`
-      ];
-      csvRows.push(row.join(','));
-    });
-
-    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
+    if (!professors.length) return setMissatge({ tipus: 'error', text: 'No hi ha professors per exportar' });
+    const rows = [['email', 'nom', 'rol'].join(',')];
+    professors.forEach(p => rows.push(`"${p.email}","${p.nom}","${p.rol}"`));
+    const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
     const a = document.createElement('a');
-    a.href = url;
-    a.download = `professors_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.csv`;
-    document.body.appendChild(a);
+    a.href = URL.createObjectURL(blob);
+    a.download = `professors_${new Date().toISOString().slice(0,19).replace(/:/g, '-')}.csv`;
     a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    
-    setMissatge({ tipus: 'ok', text: `Exportats ${professors.length} professors.` });
+    URL.revokeObjectURL(a.href);
+    setMissatge({ tipus: 'ok', text: `Exportats ${professors.length} professors` });
   }
 
   return (
@@ -196,144 +163,75 @@ export default function ProfessorManagement() {
       <h2>Gestió de professors</h2>
 
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-        <button 
-          onClick={exportarCSV} 
-          style={{ background: '#17a2b8', color: 'white', padding: '8px 16px', borderRadius: 6, cursor: 'pointer', fontSize: 13, border: 'none' }}
-          title="Exportar tots els professors a CSV"
-        >
-          📥 Exportar CSV
-        </button>
-        <label style={{ background: '#28a745', color: 'white', padding: '8px 16px', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>
+        <button onClick={exportarCSV} style={{ background: '#17a2b8', color: 'white', padding: '8px 16px', borderRadius: 6, border: 'none', cursor: 'pointer' }}>📥 Exportar CSV</button>
+        <label style={{ background: '#28a745', color: 'white', padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}>
           📂 Importar CSV
           <input type="file" accept=".csv" onChange={handleCsvUpload} style={{ display: 'none' }} />
         </label>
       </div>
 
       <form onSubmit={handleSubmit} style={{ marginBottom: 20, padding: 16, border: '1px solid #ccc', borderRadius: 8, background: '#fff' }}>
-        <h3 style={{ marginBottom: 16, fontSize: 16, color: '#1a1a18' }}>{editingId ? 'Editar professor' : 'Nou professor'}</h3>
-        <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(2, 1fr)' }}>
+        <h3>{editingId ? 'Editar professor' : 'Nou professor'}</h3>
+        <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(2,1fr)' }}>
           <div>
-            <label style={{ display: 'block', fontSize: 12, color: '#6b6a64', marginBottom: 5, fontWeight: 500 }}>Nom complet *</label>
-            <input 
-              type="text" 
-              placeholder="Marta Garcia" 
-              value={form.nom} 
-              onChange={e => setForm({ ...form, nom: e.target.value })} 
-              required 
-              style={{ width: '100%', border: '1px solid #e0ddd5', borderRadius: 6, padding: '7px 10px', fontSize: 13, background: '#f5f4f0', color: '#1a1a18', boxSizing: 'border-box' }} 
-            />
+            <label>Nom complet *</label>
+            <input type="text" value={form.nom} onChange={e => setForm({...form, nom: e.target.value})} required style={{ width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: 4 }} />
           </div>
           <div>
-            <label style={{ display: 'block', fontSize: 12, color: '#6b6a64', marginBottom: 5, fontWeight: 500 }}>Correu electrònic *</label>
-            <input 
-              type="email" 
-              placeholder="professor@centre.cat" 
-              value={form.email} 
-              onChange={e => setForm({ ...form, email: e.target.value })} 
-              required 
-              style={{ width: '100%', border: '1px solid #e0ddd5', borderRadius: 6, padding: '7px 10px', fontSize: 13, background: '#f5f4f0', color: '#1a1a18', boxSizing: 'border-box' }} 
-            />
+            <label>Correu electrònic *</label>
+            <input type="email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} required style={{ width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: 4 }} />
           </div>
           <div>
-            <label style={{ display: 'block', fontSize: 12, color: '#6b6a64', marginBottom: 5, fontWeight: 500 }}>Contrasenya {!editingId && '*'}</label>
-            <input 
-              type="password" 
-              placeholder="Mínim 6 caràcters" 
-              value={form.password} 
-              onChange={e => setForm({ ...form, password: e.target.value })} 
-              required={!editingId} 
-              minLength={6} 
-              style={{ width: '100%', border: '1px solid #e0ddd5', borderRadius: 6, padding: '7px 10px', fontSize: 13, background: '#f5f4f0', color: '#1a1a18', boxSizing: 'border-box' }} 
-            />
-            {editingId && <span style={{ fontSize: 11, color: '#888' }}>(Deixa buit per mantenir la contrasenya actual)</span>}
+            <label>Contrasenya {!editingId && '*'}</label>
+            <input type="password" value={form.password} onChange={e => setForm({...form, password: e.target.value})} required={!editingId} minLength={6} style={{ width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: 4 }} />
+            {editingId && <span style={{ fontSize: 11, color: '#888' }}>(deixa buit per mantenir-la)</span>}
           </div>
           <div>
-            <label style={{ display: 'block', fontSize: 12, color: '#6b6a64', marginBottom: 5, fontWeight: 500 }}>Rol *</label>
-            <select 
-              value={form.rol} 
-              onChange={e => setForm({ ...form, rol: e.target.value })} 
-              style={{ width: '100%', border: '1px solid #e0ddd5', borderRadius: 6, padding: '7px 10px', fontSize: 13, background: '#f5f4f0', color: '#1a1a18', boxSizing: 'border-box' }}
-            >
+            <label>Rol *</label>
+            <select value={form.rol} onChange={e => setForm({...form, rol: e.target.value})} style={{ width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: 4 }}>
               <option value="professor">Professor</option>
-              <option value="coordinador">Coordinador</option>
+              <option value="tutor">Tutor</option>
               <option value="admin">Administrador</option>
             </select>
           </div>
         </div>
         <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
-          <button 
-            type="submit" 
-            disabled={saving} 
-            style={{ background: '#2d5be3', color: '#fff', border: 'none', borderRadius: 6, padding: '8px 18px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}
-          >
+          <button type="submit" disabled={saving} style={{ background: '#2d5be3', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: 4, cursor: 'pointer' }}>
             {saving ? 'Guardant...' : editingId ? 'Actualitzar professor' : '+ Afegir professor'}
           </button>
-          {editingId && (
-            <button 
-              type="button" 
-              onClick={cancelarEdicio} 
-              style={{ background: '#f0eee8', border: 'none', borderRadius: 6, padding: '8px 18px', fontSize: 13, cursor: 'pointer', color: '#1a1a18' }}
-            >
-              Cancel·lar
-            </button>
-          )}
+          {editingId && <button type="button" onClick={cancelarEdicio} style={{ background: '#f0eee8', border: 'none', padding: '8px 16px', borderRadius: 4, cursor: 'pointer' }}>Cancel·lar</button>}
         </div>
-        {missatge && (
-          <div style={{ 
-            marginTop: 12, 
-            padding: 10, 
-            borderRadius: 6, 
-            background: missatge.tipus === 'ok' ? '#e8f5ee' : '#fceaea', 
-            color: missatge.tipus === 'ok' ? '#1a7a4a' : '#b83232', 
-            border: `1px solid ${missatge.tipus === 'ok' ? '#9fe1cb' : '#e8a0a0'}`,
-            fontSize: 13
-          }}>
-            {missatge.text}
-          </div>
-        )}
+        {missatge && <div style={{ marginTop: 12, padding: 10, borderRadius: 4, background: missatge.tipus === 'ok' ? '#e8f5ee' : '#fceaea', color: missatge.tipus === 'ok' ? '#1a7a4a' : '#b83232' }}>{missatge.text}</div>}
       </form>
 
-      <div style={{ background: '#fff', border: '1px solid #e0ddd5', borderRadius: 10, overflow: 'hidden' }}>
-        <div style={{ padding: '12px 16px', borderBottom: '1px solid #e0ddd5' }}>
-          <span style={{ fontSize: 13, fontWeight: 500, color: '#6b6a64' }}>
-            {loading ? 'Carregant...' : `${professors.length} ${professors.length === 1 ? 'professor' : 'professors'}`}
-          </span>
+      <div style={{ background: '#fff', border: '1px solid #ddd', borderRadius: 8 }}>
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid #ddd' }}>
+          <span>{loading ? 'Carregant...' : `${professors.length} professors`}</span>
         </div>
-        {!loading && professors.length === 0 && (
-          <p style={{ padding: 24, textAlign: 'center', color: '#a8a79f', fontSize: 13 }}>
-            Encara no hi ha professors. Utilitza el formulari per crear-ne un.
-          </p>
-        )}
+        {!loading && professors.length === 0 && <p style={{ padding: 24, textAlign: 'center' }}>No hi ha professors.</p>}
         {professors.length > 0 && (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: '#f5f4f0' }}>
-                <th style={{ textAlign: 'left', padding: '12px 12px', color: '#6b6a64', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.5px', fontSize: 11 }}>Nom</th>
-                <th style={{ textAlign: 'left', padding: '12px 12px', color: '#6b6a64', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.5px', fontSize: 11 }}>Email</th>
-                <th style={{ textAlign: 'left', padding: '12px 12px', color: '#6b6a64', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.5px', fontSize: 11 }}>Rol</th>
-                <th style={{ textAlign: 'center', padding: '12px 12px', color: '#6b6a64', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.5px', fontSize: 11 }}>Accions</th>
+                <th style={{ textAlign: 'left', padding: 12 }}>Nom</th>
+                <th style={{ textAlign: 'left', padding: 12 }}>Email</th>
+                <th style={{ textAlign: 'left', padding: 12 }}>Rol</th>
+                <th style={{ textAlign: 'center', padding: 12 }}>Accions</th>
               </tr>
             </thead>
             <tbody>
               {professors.map(p => (
-                <tr key={p.id} style={{ borderTop: '1px solid #e0ddd5' }}>
-                  <td style={{ padding: '12px 12px', color: '#1a1a18' }}><strong>{p.nom}</strong></td>
-                  <td style={{ padding: '12px 12px', color: '#1a1a18' }}>{p.email}</td>
-                  <td style={{ padding: '12px 12px' }}>
-                    <span style={{
-                      padding: '4px 10px', 
-                      borderRadius: 20, 
-                      fontSize: 11, 
-                      fontWeight: 500,
-                      background: p.rol === 'coordinador' ? '#ebf0fd' : p.rol === 'admin' ? '#f0e8fd' : '#f0eee8',
-                      color: p.rol === 'coordinador' ? '#1a3a9e' : p.rol === 'admin' ? '#6a1a9e' : '#6b6a64'
-                    }}>
-                      {p.rol === 'professor' ? 'Professor' : p.rol === 'coordinador' ? 'Coordinador' : 'Administrador'}
+                <tr key={p.id} style={{ borderTop: '1px solid #eee' }}>
+                  <td style={{ padding: 12 }}><strong>{p.nom}</strong></td>
+                  <td style={{ padding: 12 }}>{p.email}</td>
+                  <td style={{ padding: 12 }}>
+                    <span style={{ padding: '4px 8px', borderRadius: 20, fontSize: 12, background: p.rol === 'tutor' ? '#e0f0ff' : p.rol === 'admin' ? '#f0e0ff' : '#eee' }}>
+                      {p.rol === 'professor' ? 'Professor' : p.rol === 'tutor' ? 'Tutor' : 'Administrador'}
                     </span>
                   </td>
-                  <td style={{ padding: '12px 12px', textAlign: 'center' }}>
-                    <button onClick={() => editar(p)} style={{ background: 'none', border: 'none', color: '#2d5be3', cursor: 'pointer', fontSize: 16, marginRight: 12 }} title="Editar">✏️</button>
-                    <button onClick={() => eliminar(p.id, p.nom)} style={{ background: 'none', border: 'none', color: '#b83232', cursor: 'pointer', fontSize: 16 }} title="Eliminar">🗑️</button>
+                  <td style={{ padding: 12, textAlign: 'center' }}>
+                    <button onClick={() => editar(p)} style={{ background: 'none', border: 'none', color: '#2d5be3', cursor: 'pointer', marginRight: 12 }}>✏️</button>
+                    <button onClick={() => eliminar(p.id, p.nom)} style={{ background: 'none', border: 'none', color: '#b83232', cursor: 'pointer' }}>🗑️</button>
                   </td>
                 </tr>
               ))}

@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-
-const API = 'http://localhost:3000';
+import { apiFetch } from '../../api';
 
 export default function AssistenciaGrup() {
   const [grups, setGrups] = useState([]);
@@ -21,9 +20,13 @@ export default function AssistenciaGrup() {
   }, []);
 
   async function carregarGrups() {
-    const res = await fetch(`${API}/grups`);
+    const res = await apiFetch('/grups');
     const data = await res.json();
-    setGrups(Array.isArray(data) ? data : []);
+    if (res.ok) {
+      setGrups(Array.isArray(data) ? data : []);
+    } else {
+      setMissatge({ tipus: 'error', text: data.error || 'Error carregant grups' });
+    }
   }
 
   async function generarInforme() {
@@ -37,11 +40,11 @@ export default function AssistenciaGrup() {
     setInforme(null);
 
     try {
-      let url = `${API}/informes/assistencia_grup?data_inici=${dataInici}&data_fi=${dataFi}`;
+      let url = `/informes/assistencia_grup?data_inici=${dataInici}&data_fi=${dataFi}`;
       if (grupId) {
         url += `&grup_id=${grupId}`;
       }
-      const res = await fetch(url);
+      const res = await apiFetch(url);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       setInforme(data);

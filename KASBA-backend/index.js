@@ -18,17 +18,126 @@ app.use(cors({ origin: 'http://localhost:5173' }))
 app.use(express.json())
 
 // ==========================================
-// RUTES PER A PROFESSORS
+// MIDDLEWARE D'AUTENTICACIÓ
 // ==========================================
 
-app.get('/professors', async (req, res) => {
+async function autenticacio(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'No autoritzat: falta token' });
+  }
+
+  const token = authHeader.split(' ')[1];
+  const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+  
+  if (error || !user) {
+    return res.status(401).json({ error: 'Token invàlid o expirat' });
+  }
+
+  // Obtenir el rol i el grup (si és tutor) de l'usuari
+  const { data: professor, error: errProf } = await supabaseAdmin
+    .from('professors')
+    .select('id, nom, email, rol')
+    .eq('id', user.id)
+    .single();
+  
+  if (errProf || !professor) {
+    return res.status(403).json({ error: 'Usuari no autoritzat com a professor' });
+  }
+
+  req.user = {
+    id: user.id,
+    email: user.email,
+    nom: professor.nom,
+    rol: professor.rol
+  };
+
+  // Si és tutor, obtenir el seu grup_id
+  if (professor.rol === 'tutor') {
+    const { data: grup, error: errGrup } = await supabaseAdmin
+      .from('grups')
+      .select('id')
+      .eq('professor_id', user.id)
+      .single();
+    if (!errGrup && grup) {
+      req.user.grup_id = grup.id;
+    }
+  }
+
+  next();
+}
+
+function adminOnly(req, res, next) {
+  if (req.user.rol !== 'admin') {
+    return res.status(403).json({ error: 'Accés denegat: necessites permisos d\'administrador' });
+  }
+  next();
+}
+
+// ==========================================
+// AUTENTICACIÓ: LOGIN (públic)
+// ==========================================
+
+app.post('/login', async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Falten email o contrasenya' });
+  }
+
+  const { data, error } = await supabaseAdmin.auth.signInWithPassword({
+    email,
+    password
+  });
+
+  if (error) {
+    return res.status(401).json({ error: 'Credencials incorrectes' });
+  }
+
+  // Obtenir rol i grup del professor
+  const { data: professor, error: errProf } = await supabaseAdmin
+    .from('professors')
+    .select('id, nom, email, rol')
+    .eq('id', data.user.id)
+    .single();
+
+  if (errProf || !professor) {
+    return res.status(403).json({ error: 'Usuari no autoritzat com a professor' });
+  }
+
+  let grup_id = null;
+  if (professor.rol === 'tutor') {
+    const { data: grup } = await supabaseAdmin
+      .from('grups')
+      .select('id')
+      .eq('professor_id', professor.id)
+      .single();
+    if (grup) grup_id = grup.id;
+  }
+
+  res.json({
+    token: data.session.access_token,
+    user: {
+      id: professor.id,
+      nom: professor.nom,
+      email: professor.email,
+      rol: professor.rol,
+      grup_id
+    }
+  });
+});
+
+// ==========================================
+// RUTES PER A PROFESSORS (només admin)
+// ==========================================
+
+app.get('/professors', autenticacio, adminOnly, async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('professors').select('*').order('nom')
   if (error) return res.status(500).json({ error: error.message })
   res.json(data)
 })
 
-app.post('/professors', async (req, res) => {
+app.post('/professors', autenticacio, adminOnly, async (req, res) => {
   const { email, nom, rol, password } = req.body
   if (!email || !nom || !rol || !password)
     return res.status(400).json({ error: 'Falten camps obligatoris' })
@@ -53,7 +162,40 @@ app.post('/professors', async (req, res) => {
   res.json({ id: userId, email, nom, rol })
 })
 
-app.delete('/professors/:id', async (req, res) => {
+app.put('/professors/:id', autenticacio, adminOnly, async (req, res) => {
+  const { id } = req.params;
+  const { nom, email, rol } = req.body;
+
+  if (!nom && !email && !rol) {
+    return res.status(400).json({ error: 'Cal proporcionar algun camp per actualitzar' });
+  }
+
+  const updates = {};
+  if (nom) updates.nom = nom;
+  if (email) updates.email = email;
+  if (rol) updates.rol = rol;
+
+  // 1. Actualitzar taula professors
+  const { error: dbError } = await supabaseAdmin
+    .from('professors')
+    .update(updates)
+    .eq('id', id);
+
+  if (dbError) {
+    return res.status(500).json({ error: dbError.message });
+  }
+
+  // 2. Si s'ha canviat l'email, actualitzar també a Auth (opcional, no crític)
+  if (email) {
+    const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(id, { email });
+    if (authError) console.error('Error actualitzant email a Auth:', authError);
+    // No retornem error per evitar bloquejar l'operació principal
+  }
+
+  res.json({ ok: true, message: 'Professor actualitzat correctament' });
+});
+
+app.delete('/professors/:id', autenticacio, adminOnly, async (req, res) => {
   const { id } = req.params
   await supabaseAdmin.auth.admin.deleteUser(id)
   const { error } = await supabaseAdmin
@@ -62,11 +204,14 @@ app.delete('/professors/:id', async (req, res) => {
   res.json({ ok: true })
 })
 
+
+
+
 // ==========================================
-// RUTES PER A GRUPS
+// RUTES PER A GRUPS (només admin)
 // ==========================================
 
-app.get('/grups', async (req, res) => {
+app.get('/grups', autenticacio, async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('grups')
     .select('*, professors(nom)') 
@@ -75,7 +220,7 @@ app.get('/grups', async (req, res) => {
   res.json(data);
 });
 
-app.post('/grups', async (req, res) => {
+app.post('/grups', autenticacio, adminOnly, async (req, res) => {
   const { nom, curs, professor_id, llindar_assistencia } = req.body;
   if (!nom || !curs) {
     return res.status(400).json({ error: 'El nom i el curs són obligatoris' });
@@ -94,7 +239,7 @@ app.post('/grups', async (req, res) => {
   res.json(data);
 });
 
-app.put('/grups/:id', async (req, res) => {
+app.put('/grups/:id', autenticacio, adminOnly, async (req, res) => {
   const { id } = req.params;
   const { nom, curs, professor_id, llindar_assistencia } = req.body;
   const { data, error } = await supabaseAdmin
@@ -107,7 +252,7 @@ app.put('/grups/:id', async (req, res) => {
   res.json(data);
 });
 
-app.delete('/grups/:id', async (req, res) => {
+app.delete('/grups/:id', autenticacio, adminOnly, async (req, res) => {
   const { id } = req.params;
   const { error } = await supabaseAdmin
     .from('grups')
@@ -118,22 +263,29 @@ app.delete('/grups/:id', async (req, res) => {
 });
 
 // ==========================================
-// RUTES PER A ALUMNES
+// RUTES PER A ALUMNES (tots autenticats, tutors només el seu grup)
 // ==========================================
 
-app.get('/alumnes', async (req, res) => {
-  const { data, error } = await supabaseAdmin
-    .from('alumnes')
-    .select(`*, grups (nom)`)
-    .order('nom');
+app.get('/alumnes', autenticacio, async (req, res) => {
+  let query = supabaseAdmin.from('alumnes').select('*, grups (nom)');
+  if (req.user.rol === 'tutor' && req.user.grup_id) {
+    query = query.eq('grup_id', req.user.grup_id);
+  }
+  const { data, error } = await query.order('nom');
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
 
-app.post('/alumnes', async (req, res) => {
+app.post('/alumnes', autenticacio, async (req, res) => {
   const { nom, cognoms, email, dni, grup_id, actiu } = req.body;
   if (!nom || !cognoms) {
     return res.status(400).json({ error: 'Nom i cognoms són obligatoris' });
+  }
+  // Tutor només pot crear alumnes en el seu grup
+  if (req.user.rol === 'tutor') {
+    if (!req.user.grup_id || grup_id !== req.user.grup_id) {
+      return res.status(403).json({ error: 'No pots crear alumnes en un altre grup' });
+    }
   }
   const { data, error } = await supabaseAdmin
     .from('alumnes')
@@ -144,9 +296,22 @@ app.post('/alumnes', async (req, res) => {
   res.json(data);
 });
 
-app.put('/alumnes/:id', async (req, res) => {
+app.put('/alumnes/:id', autenticacio, async (req, res) => {
   const { id } = req.params;
   const { nom, cognoms, email, dni, grup_id, actiu } = req.body;
+  
+  // Per a tutors, comprovar que l'alumne pertany al seu grup
+  if (req.user.rol === 'tutor') {
+    const { data: alumne, error: errAl } = await supabaseAdmin
+      .from('alumnes')
+      .select('grup_id')
+      .eq('id', id)
+      .single();
+    if (errAl || !alumne || alumne.grup_id !== req.user.grup_id) {
+      return res.status(403).json({ error: 'No pots modificar alumnes d\'un altre grup' });
+    }
+  }
+  
   const { data, error } = await supabaseAdmin
     .from('alumnes')
     .update({ nom, cognoms, email, dni, grup_id, actiu })
@@ -157,8 +322,19 @@ app.put('/alumnes/:id', async (req, res) => {
   res.json(data);
 });
 
-app.delete('/alumnes/:id', async (req, res) => {
+app.delete('/alumnes/:id', autenticacio, async (req, res) => {
   const { id } = req.params;
+  // Per a tutors, comprovar que l'alumne pertany al seu grup
+  if (req.user.rol === 'tutor') {
+    const { data: alumne, error: errAl } = await supabaseAdmin
+      .from('alumnes')
+      .select('grup_id')
+      .eq('id', id)
+      .single();
+    if (errAl || !alumne || alumne.grup_id !== req.user.grup_id) {
+      return res.status(403).json({ error: 'No pots eliminar alumnes d\'un altre grup' });
+    }
+  }
   const { error } = await supabaseAdmin
     .from('alumnes')
     .delete()
@@ -168,10 +344,10 @@ app.delete('/alumnes/:id', async (req, res) => {
 });
 
 // ==========================================
-// RUTES PER A MATERIES
+// RUTES PER A MATERIES (només admin)
 // ==========================================
 
-app.get('/materies', async (req, res) => {
+app.get('/materies', autenticacio, adminOnly, async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('materies')
     .select('*')
@@ -180,7 +356,7 @@ app.get('/materies', async (req, res) => {
   res.json(data);
 });
 
-app.post('/materies', async (req, res) => {
+app.post('/materies', autenticacio, adminOnly, async (req, res) => {
   const { nom, descripcio } = req.body;
   if (!nom) return res.status(400).json({ error: 'El nom és obligatori' });
   const { data, error } = await supabaseAdmin
@@ -192,7 +368,7 @@ app.post('/materies', async (req, res) => {
   res.json(data);
 });
 
-app.put('/materies/:id', async (req, res) => {
+app.put('/materies/:id', autenticacio, adminOnly, async (req, res) => {
   const { id } = req.params;
   const { nom, descripcio } = req.body;
   const { data, error } = await supabaseAdmin
@@ -205,7 +381,7 @@ app.put('/materies/:id', async (req, res) => {
   res.json(data);
 });
 
-app.delete('/materies/:id', async (req, res) => {
+app.delete('/materies/:id', autenticacio, adminOnly, async (req, res) => {
   const { id } = req.params;
   const { error } = await supabaseAdmin
     .from('materies')
@@ -216,10 +392,10 @@ app.delete('/materies/:id', async (req, res) => {
 });
 
 // ==========================================
-// RUTES PER A HORARIS (amb filtre per grup)
+// RUTES PER A HORARIS (consulta: tots autenticats, modificació: només admin)
 // ==========================================
 
-app.get('/horaris', async (req, res) => {
+app.get('/horaris', autenticacio, async (req, res) => {
   let query = supabaseAdmin.from('horaris').select('*, materies(nom), grups(nom)');
   if (req.query.grup_id) {
     query = query.eq('grup_id', req.query.grup_id);
@@ -229,7 +405,7 @@ app.get('/horaris', async (req, res) => {
   res.json(data);
 });
 
-app.post('/horaris', async (req, res) => {
+app.post('/horaris', autenticacio, adminOnly, async (req, res) => {
   const { grup_id, materia_id, dia_setmana, hora_inici, durada_min } = req.body;
   if (!grup_id || !materia_id || !dia_setmana || !hora_inici || !durada_min) {
     return res.status(400).json({ error: 'Falten camps obligatoris' });
@@ -243,7 +419,7 @@ app.post('/horaris', async (req, res) => {
   res.json(data);
 });
 
-app.put('/horaris/:id', async (req, res) => {
+app.put('/horaris/:id', autenticacio, adminOnly, async (req, res) => {
   const { id } = req.params;
   const { grup_id, materia_id, dia_setmana, hora_inici, durada_min } = req.body;
   const { data, error } = await supabaseAdmin
@@ -256,7 +432,7 @@ app.put('/horaris/:id', async (req, res) => {
   res.json(data);
 });
 
-app.delete('/horaris/:id', async (req, res) => {
+app.delete('/horaris/:id', autenticacio, adminOnly, async (req, res) => {
   const { id } = req.params;
   const { error } = await supabaseAdmin
     .from('horaris')
@@ -267,10 +443,10 @@ app.delete('/horaris/:id', async (req, res) => {
 });
 
 // ==========================================
-// RUTES PER A HORARIS PER DIA (gestió ràpida)
+// RUTES PER A HORARIS PER DIA (gestió ràpida, només admin)
 // ==========================================
 
-app.get('/horaris/grup-dia', async (req, res) => {
+app.get('/horaris/grup-dia', autenticacio, async (req, res) => {
   const { grup_id, dia_setmana } = req.query;
   if (!grup_id || !dia_setmana) {
     return res.status(400).json({ error: 'Falten grup_id o dia_setmana' });
@@ -285,7 +461,7 @@ app.get('/horaris/grup-dia', async (req, res) => {
   res.json(data);
 });
 
-app.post('/horaris/grup-dia', async (req, res) => {
+app.post('/horaris/grup-dia', autenticacio, adminOnly, async (req, res) => {
   const { grup_id, dia_setmana, franges } = req.body;
   if (!grup_id || !dia_setmana || !Array.isArray(franges)) {
     return res.status(400).json({ error: 'Dades invàlides' });
@@ -325,7 +501,7 @@ app.post('/horaris/grup-dia', async (req, res) => {
 });
 
 // ==========================================
-// RUTES PER A ASSISTÈNCIA
+// RUTES PER A ASSISTÈNCIA (tots autenticats)
 // ==========================================
 
 function getDiaSetmana(data) {
@@ -334,7 +510,7 @@ function getDiaSetmana(data) {
   return dia === 0 ? 7 : dia;
 }
 
-app.get('/assistencia/config', async (req, res) => {
+app.get('/assistencia/config', autenticacio, async (req, res) => {
   const { grup_id, data } = req.query;
   if (!grup_id || !data) {
     return res.status(400).json({ error: 'Falten grup_id o data' });
@@ -374,7 +550,7 @@ app.get('/assistencia/config', async (req, res) => {
   res.json({ sessions, alumnes, registresExistents });
 });
 
-app.post('/assistencia/guardar', async (req, res) => {
+app.post('/assistencia/guardar', autenticacio, async (req, res) => {
   const { data, registres } = req.body;
   if (!data || !Array.isArray(registres)) {
     return res.status(400).json({ error: 'Falten dades o format incorrecte' });
@@ -398,11 +574,10 @@ app.post('/assistencia/guardar', async (req, res) => {
 });
 
 // ==========================================
-// RUTES PER A DIES NO LECTIUS
+// RUTES PER A DIES NO LECTIUS (només admin)
 // ==========================================
 
-// Llistar dies no lectius d'un grup
-app.get('/dies_no_lectius', async (req, res) => {
+app.get('/dies_no_lectius', autenticacio, adminOnly, async (req, res) => {
   const { grup_id } = req.query;
   if (!grup_id) {
     return res.status(400).json({ error: 'Falta grup_id' });
@@ -416,8 +591,7 @@ app.get('/dies_no_lectius', async (req, res) => {
   res.json(data);
 });
 
-// Crear dia no lectiu
-app.post('/dies_no_lectius', async (req, res) => {
+app.post('/dies_no_lectius', autenticacio, adminOnly, async (req, res) => {
   const { grup_id, data, motiu } = req.body;
   if (!grup_id || !data) {
     return res.status(400).json({ error: 'Falten grup_id o data' });
@@ -429,8 +603,7 @@ app.post('/dies_no_lectius', async (req, res) => {
   res.json({ ok: true });
 });
 
-// Actualitzar dia no lectiu
-app.put('/dies_no_lectius/:id', async (req, res) => {
+app.put('/dies_no_lectius/:id', autenticacio, adminOnly, async (req, res) => {
   const { id } = req.params;
   const { data, motiu } = req.body;
   const { error } = await supabaseAdmin
@@ -441,8 +614,7 @@ app.put('/dies_no_lectius/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
-// Eliminar dia no lectiu
-app.delete('/dies_no_lectius/:id', async (req, res) => {
+app.delete('/dies_no_lectius/:id', autenticacio, adminOnly, async (req, res) => {
   const { id } = req.params;
   const { error } = await supabaseAdmin
     .from('dies_no_lectius')
@@ -452,8 +624,7 @@ app.delete('/dies_no_lectius/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
-// Copiar dies no lectius d'un grup origen a un grup destí
-app.post('/dies_no_lectius/copiar', async (req, res) => {
+app.post('/dies_no_lectius/copiar', autenticacio, adminOnly, async (req, res) => {
   const { origen_grup_id, desti_grup_id } = req.body;
   if (!origen_grup_id || !desti_grup_id) {
     return res.status(400).json({ error: 'Falten els IDs dels grups' });
@@ -484,10 +655,10 @@ app.post('/dies_no_lectius/copiar', async (req, res) => {
 });
 
 // ==========================================
-// RUTES PER A INFORMES D'ASSISTÈNCIA
+// RUTES PER A INFORMES (tots autenticats)
 // ==========================================
 
-app.get('/informes/assistencia', async (req, res) => {
+app.get('/informes/assistencia', autenticacio, async (req, res) => {
   const { grup_id, data_inici, data_fi } = req.query;
   
   if (!grup_id || !data_inici || !data_fi) {
@@ -631,11 +802,7 @@ app.get('/informes/assistencia', async (req, res) => {
   }
 });
 
-// ==========================================
-// INFORME: ASSISTÈNCIA PER MATÈRIA
-// ==========================================
-
-app.get('/informes/assistencia_materia', async (req, res) => {
+app.get('/informes/assistencia_materia', autenticacio, async (req, res) => {
   const { grup_id, materia_id, data_inici, data_fi } = req.query;
   
   if (!grup_id || !materia_id || !data_inici || !data_fi) {
@@ -759,11 +926,7 @@ app.get('/informes/assistencia_materia', async (req, res) => {
   }
 });
 
-// ==========================================
-// INFORME: ASSISTÈNCIA PER GRUP
-// ==========================================
-
-app.get('/informes/assistencia_grup', async (req, res) => {
+app.get('/informes/assistencia_grup', autenticacio, async (req, res) => {
   const { grup_id, data_inici, data_fi } = req.query;
   if (!data_inici || !data_fi) {
     return res.status(400).json({ error: 'Falten les dates' });
@@ -875,11 +1038,7 @@ app.get('/informes/assistencia_grup', async (req, res) => {
   }
 });
 
-// ==========================================
-// INFORME: ALERTES D'ASSISTÈNCIA
-// ==========================================
-
-app.get('/informes/alertes', async (req, res) => {
+app.get('/informes/alertes', autenticacio, async (req, res) => {
   const { grup_id, data_inici, data_fi, llindar_personalitzat } = req.query;
   
   if (!data_inici || !data_fi) {
@@ -1030,13 +1189,8 @@ app.get('/informes/alertes', async (req, res) => {
   }
 });
 
-
-
-
 // ==========================================
 // INICI DEL SERVIDOR
 // ==========================================
 
-//app.listen(3000, () => console.log('Backend corrent a http://localhost:3000'))
 app.listen(3000, '0.0.0.0', () => console.log('Backend corrent a http://0.0.0.0:3000'))
-

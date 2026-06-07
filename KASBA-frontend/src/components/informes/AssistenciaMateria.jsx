@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-
-const API = 'http://localhost:3000';
+import { apiFetch } from '../../api';
 
 export default function AssistenciaMateria() {
   const [grups, setGrups] = useState([]);
@@ -24,15 +23,23 @@ export default function AssistenciaMateria() {
   }, []);
 
   async function carregarGrups() {
-    const res = await fetch(`${API}/grups`);
+    const res = await apiFetch('/grups');
     const data = await res.json();
-    setGrups(Array.isArray(data) ? data : []);
+    if (res.ok) {
+      setGrups(Array.isArray(data) ? data : []);
+    } else {
+      setMissatge({ tipus: 'error', text: data.error || 'Error carregant grups' });
+    }
   }
 
   async function carregarMateries() {
-    const res = await fetch(`${API}/materies`);
+    const res = await apiFetch('/materies');
     const data = await res.json();
-    setMateries(Array.isArray(data) ? data : []);
+    if (res.ok) {
+      setMateries(Array.isArray(data) ? data : []);
+    } else {
+      setMissatge({ tipus: 'error', text: data.error || 'Error carregant matèries' });
+    }
   }
 
   async function generarInforme() {
@@ -46,7 +53,8 @@ export default function AssistenciaMateria() {
     setInforme(null);
 
     try {
-      const res = await fetch(`${API}/informes/assistencia_materia?grup_id=${grupId}&materia_id=${materiaId}&data_inici=${dataInici}&data_fi=${dataFi}`);
+      const url = `/informes/assistencia_materia?grup_id=${grupId}&materia_id=${materiaId}&data_inici=${dataInici}&data_fi=${dataFi}`;
+      const res = await apiFetch(url);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       setInforme(data);

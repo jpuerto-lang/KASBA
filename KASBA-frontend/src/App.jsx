@@ -1,42 +1,56 @@
-import { useState } from 'react'
-import ProfessorManagement from './components/ProfessorManagement'
-import GrupManagement from './components/GrupManagement'
-import AlumneManagement from './components/AlumneManagement'
-import MateriaManagement from './components/MateriaManagement'
-import HorariPerDia from './components/HorariPerDia'
-import AssistenciaManagement from './components/AssistenciaManagement'
-import HorariGrup from './components/HorariGrup'
-import InformesPrincipal from './components/informes/InformesPrincipal'
-import DiesNoLectiusManagement from './components/DiesNoLectiusManagement'
+import { useState } from 'react';
+import { useAuth } from './context/AuthContext';
+import Login from './components/Login';
+import AlumneManagement from './components/AlumneManagement';
+import AssistenciaManagement from './components/AssistenciaManagement';
+import HorariGrup from './components/HorariGrup';
+import InformesPrincipal from './components/informes/InformesPrincipal';
+import ConfiguracioPrincipal from './components/ConfiguracioPrincipal';
 
-export default function App() {
-  const [seccio, setSeccio] = useState('professors')
+function AppContent() {
+  const { user, logout, loading } = useAuth();
+  const [seccio, setSeccio] = useState('assistencia');
+
+  if (loading) return <div style={{ textAlign: 'center', marginTop: 50 }}>Carregant...</div>;
+  if (!user) return <Login />;
+
+  const esAdmin = user.rol === 'admin';
+  const esTutor = user.rol === 'tutor';
+  const esProfessor = user.rol === 'professor';
 
   return (
-    <div style={{ maxWidth: 1000, margin: '40px auto', padding: '0 20px', fontFamily: 'system-ui, sans-serif' }}>
-      <h1 style={{ fontSize: 24 }}>🏫 KASBA - Gestió acadèmica</h1>
-      
+    <div style={{ maxWidth: 1000, margin: '40px auto', padding: '0 20px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <h1 style={{ fontSize: 24 }}>🏫 KASBA - Gestió acadèmica</h1>
+        <div>
+          <span style={{ marginRight: 12, fontSize: 14 }}>{user.nom} ({user.rol})</span>
+          <button onClick={logout} style={{ background: '#dc3545', color: 'white', border: 'none', padding: '6px 12px', borderRadius: 6, cursor: 'pointer' }}>
+            Tancar sessió
+          </button>
+        </div>
+      </div>
+
       <nav style={{ marginBottom: 20, borderBottom: '1px solid #ccc', paddingBottom: 8, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-        <button onClick={() => setSeccio('professors')} style={{ background: seccio === 'professors' ? '#2d5be3' : '#f0eee8', color: seccio === 'professors' ? '#fff' : '#000', border: 'none', padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}>👨‍🏫 Professors</button>
-        <button onClick={() => setSeccio('grups')} style={{ background: seccio === 'grups' ? '#2d5be3' : '#f0eee8', color: seccio === 'grups' ? '#fff' : '#000', border: 'none', padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}>👥 Grups</button>
-        <button onClick={() => setSeccio('alumnes')} style={{ background: seccio === 'alumnes' ? '#2d5be3' : '#f0eee8', color: seccio === 'alumnes' ? '#fff' : '#000', border: 'none', padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}>🧑‍🎓 Alumnes</button>
-        <button onClick={() => setSeccio('materies')} style={{ background: seccio === 'materies' ? '#2d5be3' : '#f0eee8', color: seccio === 'materies' ? '#fff' : '#000', border: 'none', padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}>📚 Matèries</button>
-        <button onClick={() => setSeccio('horaris')} style={{ background: seccio === 'horaris' ? '#2d5be3' : '#f0eee8', color: seccio === 'horaris' ? '#fff' : '#000', border: 'none', padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}>📅 Horari (Disseny)</button>
-        <button onClick={() => setSeccio('horari_grup')} style={{ background: seccio === 'horari_grup' ? '#2d5be3' : '#f0eee8', color: seccio === 'horari_grup' ? '#fff' : '#000', border: 'none', padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}>📋 Horari (Visor)</button>
         <button onClick={() => setSeccio('assistencia')} style={{ background: seccio === 'assistencia' ? '#2d5be3' : '#f0eee8', color: seccio === 'assistencia' ? '#fff' : '#000', border: 'none', padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}>✍️ Assistència</button>
-        <button onClick={() => setSeccio('dies_no_lectius')} style={{ background: seccio === 'dies_no_lectius' ? '#2d5be3' : '#f0eee8', color: seccio === 'dies_no_lectius' ? '#fff' : '#000', border: 'none', padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}>📅 Dies no lectius</button>
+        <button onClick={() => setSeccio('horari_grup')} style={{ background: seccio === 'horari_grup' ? '#2d5be3' : '#f0eee8', color: seccio === 'horari_grup' ? '#fff' : '#000', border: 'none', padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}>📅 Horaris</button>
         <button onClick={() => setSeccio('informes')} style={{ background: seccio === 'informes' ? '#2d5be3' : '#f0eee8', color: seccio === 'informes' ? '#fff' : '#000', border: 'none', padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}>📊 Informes</button>
+        
+        {(esAdmin || esTutor) && (
+          <button onClick={() => setSeccio('alumnes')} style={{ background: seccio === 'alumnes' ? '#2d5be3' : '#f0eee8', color: seccio === 'alumnes' ? '#fff' : '#000', border: 'none', padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}>🧑‍🎓 Alumnes</button>
+        )}
+        
+        {esAdmin && (
+          <button onClick={() => setSeccio('configuracio')} style={{ background: seccio === 'configuracio' ? '#2d5be3' : '#f0eee8', color: seccio === 'configuracio' ? '#fff' : '#000', border: 'none', padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}>🔧 Configuració</button>
+        )}
       </nav>
 
-      {seccio === 'professors' && <ProfessorManagement />}
-      {seccio === 'grups' && <GrupManagement />}
-      {seccio === 'alumnes' && <AlumneManagement />}
-      {seccio === 'materies' && <MateriaManagement />}
-      {seccio === 'horaris' && <HorariPerDia />}
-      {seccio === 'horari_grup' && <HorariGrup />}
       {seccio === 'assistencia' && <AssistenciaManagement />}
-      {seccio === 'dies_no_lectius' && <DiesNoLectiusManagement />}
+      {seccio === 'horari_grup' && <HorariGrup />}
       {seccio === 'informes' && <InformesPrincipal />}
+      {(esAdmin || esTutor) && seccio === 'alumnes' && <AlumneManagement />}
+      {esAdmin && seccio === 'configuracio' && <ConfiguracioPrincipal />}
     </div>
-  )
+  );
 }
+
+export default AppContent;

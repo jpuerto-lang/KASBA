@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-
-const API = 'http://localhost:3000';
+import { apiFetch } from '../../api';
 
 export default function AlertesAssistencia() {
   const [grups, setGrups] = useState([]);
@@ -22,9 +21,13 @@ export default function AlertesAssistencia() {
   }, []);
 
   async function carregarGrups() {
-    const res = await fetch(`${API}/grups`);
+    const res = await apiFetch('/grups');
     const data = await res.json();
-    setGrups(Array.isArray(data) ? data : []);
+    if (res.ok) {
+      setGrups(Array.isArray(data) ? data : []);
+    } else {
+      setMissatge({ tipus: 'error', text: data.error || 'Error carregant grups' });
+    }
   }
 
   async function generarAlertes() {
@@ -38,14 +41,14 @@ export default function AlertesAssistencia() {
     setAlertes(null);
 
     try {
-      let url = `${API}/informes/alertes?data_inici=${dataInici}&data_fi=${dataFi}`;
+      let url = `/informes/alertes?data_inici=${dataInici}&data_fi=${dataFi}`;
       if (grupId) {
         url += `&grup_id=${grupId}`;
       }
       if (llindarPersonalitzat && parseFloat(llindarPersonalitzat) > 0) {
         url += `&llindar_personalitzat=${llindarPersonalitzat}`;
       }
-      const res = await fetch(url);
+      const res = await apiFetch(url);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       setAlertes(data);

@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-
-const API = 'http://localhost:3000';
+import { apiFetch } from '../api';
 
 export default function DiesNoLectiusManagement() {
   const [grups, setGrups] = useState([]);
@@ -27,16 +26,20 @@ export default function DiesNoLectiusManagement() {
   }, [grupId]);
 
   async function carregarGrups() {
-    const res = await fetch(`${API}/grups`);
+    const res = await apiFetch('/grups');
     const data = await res.json();
-    setGrups(Array.isArray(data) ? data : []);
+    if (res.ok) {
+      setGrups(Array.isArray(data) ? data : []);
+    } else {
+      setMissatge({ tipus: 'error', text: data.error || 'Error carregant grups' });
+    }
   }
 
   async function carregarDies() {
     if (!grupId) return;
     setLoading(true);
     try {
-      const res = await fetch(`${API}/dies_no_lectius?grup_id=${grupId}`);
+      const res = await apiFetch(`/dies_no_lectius?grup_id=${grupId}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       setDies(Array.isArray(data) ? data : []);
@@ -57,13 +60,12 @@ export default function DiesNoLectiusManagement() {
     setSaving(true);
     setMissatge(null);
 
-    const url = editingId ? `${API}/dies_no_lectius/${editingId}` : `${API}/dies_no_lectius`;
+    const url = editingId ? `/dies_no_lectius/${editingId}` : '/dies_no_lectius';
     const method = editingId ? 'PUT' : 'POST';
 
     try {
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ grup_id: grupId, data, motiu }),
       });
       const result = await res.json();
@@ -90,7 +92,7 @@ export default function DiesNoLectiusManagement() {
   async function eliminar(id, dataDia) {
     if (!confirm(`Eliminar el dia no lectiu ${dataDia}?`)) return;
     try {
-      const res = await fetch(`${API}/dies_no_lectius/${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`/dies_no_lectius/${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Error en eliminar');
       setMissatge({ tipus: 'ok', text: 'Dia eliminat' });
       carregarDies();
@@ -111,9 +113,8 @@ export default function DiesNoLectiusManagement() {
     
     setCopiant(true);
     try {
-      const res = await fetch(`${API}/dies_no_lectius/copiar`, {
+      const res = await apiFetch('/dies_no_lectius/copiar', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ origen_grup_id: origenId, desti_grup_id: grupId })
       });
       const data = await res.json();
