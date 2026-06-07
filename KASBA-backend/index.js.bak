@@ -211,7 +211,7 @@ app.delete('/professors/:id', autenticacio, adminOnly, async (req, res) => {
 // RUTES PER A GRUPS (només admin)
 // ==========================================
 
-app.get('/grups', autenticacio, adminOnly, async (req, res) => {
+app.get('/grups', autenticacio, async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('grups')
     .select('*, professors(nom)') 
@@ -1188,6 +1188,16 @@ app.get('/informes/alertes', autenticacio, async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// Mantenir el backend "actiu" amb pings periòdics (solució ràpida i d'emergència. Caldria provar pm2?)
+setInterval(async () => {
+  try {
+    await supabaseAdmin.from('grups').select('count', { count: 'exact', head: true });
+    console.log('Ping a Supabase OK');
+  } catch (err) {
+    console.error('Ping a Supabase fallat:', err.message);
+  }
+}, 60000); // cada 60 segons
 
 // ==========================================
 // INICI DEL SERVIDOR
