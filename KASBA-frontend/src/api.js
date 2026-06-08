@@ -1,4 +1,4 @@
-const API_URL = 'http://localhost:3000';
+const API_URL = 'http://192.168.3.10:3000'; 
 
 export function apiFetch(endpoint, options = {}) {
   const token = localStorage.getItem('token');

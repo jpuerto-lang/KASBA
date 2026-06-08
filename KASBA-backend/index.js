@@ -22,7 +22,12 @@ function getSupabaseAdmin() {
 }
 
 const app = express()
-app.use(cors({ origin: 'http://localhost:5173' }))
+
+//app.use(cors({ origin: 'http://localhost:5173' }))
+
+//Només per proves a la LAN
+app.use(cors({ origin: true }))   // Permet qualsevol origen
+
 app.use(express.json())
 
 // ==========================================
